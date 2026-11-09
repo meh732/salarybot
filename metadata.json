@@ -1,0 +1,6 @@
+{
+  "name": "سامانه جامع بات فیش حقوقی تلگرام و بله",
+  "description": "پنل مدیریت هوشمند، احراز هویت کد پرسنلی، بارگذاری اکسل و PDF فیش حقوقی و شبیه‌ساز زنده ربات تلگرام و بله با دکمه‌های شیشه‌ای رنگی",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
