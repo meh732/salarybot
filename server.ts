@@ -79,6 +79,52 @@ function nowTimeStr(): string {
   )}`;
 }
 
+function isMessengerAdmin(
+  messengerId: string | undefined,
+  username: string | undefined,
+  config: BotConfig
+): boolean {
+  const cleanId = (messengerId || '').trim().toLowerCase();
+  const cleanUser = (username || '').trim().toLowerCase().replace(/^@/, '');
+
+  const envAdmins = (process.env.ADMIN_IDS || '')
+    .split(',')
+    .map((x) => x.trim().toLowerCase().replace(/^@/, ''))
+    .filter(Boolean);
+
+  const configAdmins = (config.adminMessengerIds || [])
+    .map((x) => String(x).trim().toLowerCase().replace(/^@/, ''))
+    .filter(Boolean);
+
+  const allAdmins = new Set([...envAdmins, ...configAdmins, 'usr-admin-master', '92218108']);
+
+  if (cleanId && allAdmins.has(cleanId)) return true;
+  if (cleanUser && allAdmins.has(cleanUser)) return true;
+  return false;
+}
+
+function buildTelegramReplyKeyboard(isAdmin: boolean) {
+  if (isAdmin) {
+    return {
+      keyboard: [
+        [{ text: '📄 دریافت فیش حقوقی' }, { text: '📊 آخرین فیش صادر شده' }],
+        [{ text: '👑 پنل مدیریت (/admin)' }, { text: '🪪 صف کارت ملی' }],
+        [{ text: '📤 آپلود فیش' }, { text: '👤 کد پرسنلی و اطلاعات من' }],
+      ],
+      resize_keyboard: true,
+      persistent: true,
+    };
+  }
+  return {
+    keyboard: [
+      [{ text: '📄 دریافت فیش حقوقی' }, { text: '📊 آخرین فیش صادر شده' }],
+      [{ text: '👤 کد پرسنلی و اطلاعات من' }, { text: '💬 پشتیبانی' }],
+    ],
+    resize_keyboard: true,
+    persistent: true,
+  };
+}
+
 function buildMainMenuKeyboard(isAdmin = false): BotButton[][] {
   const rows: BotButton[][] = [
     [{ text: '📄 دریافت فیش حقوقی (تصویر + PDF)', callbackData: 'menu_payslips', colorVariant: 'emerald' }],
@@ -466,15 +512,30 @@ function handleBotInteraction(
     });
   };
 
-  const payload = (params.payload || '').trim();
+  let rawPayload = (params.payload || '').trim();
+  let payload = rawPayload;
+
+  // Map persistent square Reply Keyboard button text inputs
+  if (rawPayload === '📄 دریافت فیش حقوقی') payload = 'menu_payslips';
+  else if (rawPayload === '📊 آخرین فیش صادر شده') payload = 'latest_payslip';
+  else if (rawPayload === '👤 کد پرسنلی و اطلاعات من' || rawPayload === '👤 پرونده و کد پرسنلی من') payload = 'menu_profile';
+  else if (rawPayload === '💬 پشتیبانی' || rawPayload === '💬 ارتباط با واحد منابع انسانی') payload = 'menu_support';
+  else if (rawPayload.includes('👑 پنل مدیریت') || rawPayload === '👑 پنل مدیریت (/admin)') payload = '/admin';
+  else if (rawPayload.includes('🪪 صف کارت ملی')) payload = 'adm_queue';
+  else if (rawPayload.includes('📤 آپلود فیش') || rawPayload.startsWith('📤 بارگذاری')) payload = 'adm_upload_menu';
+
   const masterSecret = (state.config.adminSecretCode || process.env.ADMIN_SECRET || '123456').trim();
-  const normalizedAdmins = (state.config.adminMessengerIds || []).map((a) =>
-    a.trim().toLowerCase().replace(/^@/, '')
-  );
+
   let isUserAdmin =
-    Boolean(user.isAdmin) ||
-    normalizedAdmins.includes(user.messengerId.toLowerCase()) ||
-    (Boolean(user.username) && normalizedAdmins.includes(user.username.toLowerCase().replace(/^@/, '')));
+    Boolean(user.isAdmin) || isMessengerAdmin(user.messengerId, user.username, state.config);
+
+  if (isUserAdmin && !user.isAdmin) {
+    user.isAdmin = true;
+    user.verificationStatus = 'approved';
+    user.isChannelMember = true;
+    user.isActive = true;
+    if (!user.personnelCode) user.personnelCode = '1001';
+  }
 
   // =========================================================================
   // ZERO-PANEL WEBHOOK ADMIN CLAIM FLOW (`/setadmin <secret>`, `/claim <secret>`, or 1-Click Button)
@@ -2895,6 +2956,7 @@ console.log("🚀 Payroll Bot (with Full In-Bot Admin Panel /admin) Started for:
 
       if (from && msg) {
         const messengerId = String(from.id);
+        const checkIsAdmin = isMessengerAdmin(messengerId, from.username, state.config);
         let botUser = state.users.find((u) => u.messengerId === messengerId && u.platform === platform);
         if (!botUser) {
           botUser = {
@@ -2902,16 +2964,16 @@ console.log("🚀 Payroll Bot (with Full In-Bot Admin Panel /admin) Started for:
             messengerId,
             username: from.username || `user_${messengerId}`,
             platform,
-            isAdmin: Boolean(state.config.adminMessengerIds?.includes(messengerId)),
+            isAdmin: checkIsAdmin,
             submittedName: `${from.first_name || ''} ${from.last_name || ''}`.trim(),
             nationalCode: '',
             phoneNumber: '',
             nationalCardImageUrl: '',
-            personnelCode: null,
-            department: 'کاربر جدید',
-            jobTitle: 'تعیین نشده',
-            isChannelMember: false,
-            verificationStatus: 'unverified',
+            personnelCode: checkIsAdmin ? '1001' : null,
+            department: checkIsAdmin ? 'مدیریت ارشد' : 'کاربر جدید',
+            jobTitle: checkIsAdmin ? 'ادمین کل سامانه' : 'تعیین نشده',
+            isChannelMember: checkIsAdmin,
+            verificationStatus: checkIsAdmin ? 'approved' : 'unverified',
             isActive: true,
             selectedYear: 1404,
             joinedAt: `۱۴۰۴/۰۸/۱۵ - ${nowTimeStr()}`,
@@ -2919,6 +2981,12 @@ console.log("🚀 Payroll Bot (with Full In-Bot Admin Panel /admin) Started for:
           };
           state.users.push(botUser);
           state.messagesByUser[botUser.id] = [];
+        } else if (checkIsAdmin && (!botUser.isAdmin || botUser.verificationStatus !== 'approved')) {
+          botUser.isAdmin = true;
+          botUser.verificationStatus = 'approved';
+          botUser.isChannelMember = true;
+          botUser.isActive = true;
+          if (!botUser.personnelCode) botUser.personnelCode = '1001';
         }
 
         const result = handleBotInteraction(state, {
@@ -2943,13 +3011,19 @@ console.log("🚀 Payroll Bot (with Full In-Bot Admin Panel /admin) Started for:
             }))
           );
 
+          const replyKeyboard = buildTelegramReplyKeyboard(Boolean(botUser.isAdmin));
+
+          const reply_markup = inline_keyboard && inline_keyboard.length > 0
+            ? { inline_keyboard }
+            : replyKeyboard;
+
           await fetch(sendUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               chat_id: msg.chat.id,
               text: lastBotMsg.text,
-              reply_markup: inline_keyboard ? { inline_keyboard } : undefined,
+              reply_markup,
             }),
           });
         }

@@ -658,8 +658,164 @@ export const BotSimulator: React.FC<BotSimulatorProps> = ({
         <div ref={chatEndRef} />
       </div>
 
-      {/* Quick Glassmorphic Bot Action Bar + Text Input */}
-      <div className="p-3 bg-slate-950 border-t border-slate-800 space-y-2.5">
+      {/* Persistent Square Reply Keyboard Grid (منوی مربع کیبورد زیر نوار چت در تلگرام و بله) */}
+      <div className="p-3 bg-slate-950 border-t border-slate-800 space-y-2">
+        <div className="text-[11px] font-bold text-slate-400 flex items-center justify-between px-1">
+          <span>⌨️ منوی مربع کیبورد پیوست زیر نوار چت (Reply Keyboard):</span>
+          <span className="text-[10px] text-cyan-400 font-mono">
+            {isUserAdmin ? 'کیبورد ویژه ادمین کل' : 'کیبورد پرسنلی'}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-1.5">
+          {isUserAdmin ? (
+            <>
+              <button
+                type="button"
+                onClick={() =>
+                  onBotInteract({
+                    userId: activeUser.id,
+                    actionType: 'text',
+                    payload: '📄 دریافت فیش حقوقی',
+                  })
+                }
+                disabled={isBusy}
+                className="py-2 px-3 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 border border-slate-700/80 text-xs font-semibold text-emerald-300 transition-all cursor-pointer text-center truncate active:scale-98 shadow-sm"
+              >
+                📄 دریافت فیش حقوقی
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  onBotInteract({
+                    userId: activeUser.id,
+                    actionType: 'text',
+                    payload: '📊 آخرین فیش صادر شده',
+                  })
+                }
+                disabled={isBusy}
+                className="py-2 px-3 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 border border-slate-700/80 text-xs font-semibold text-cyan-300 transition-all cursor-pointer text-center truncate active:scale-98 shadow-sm"
+              >
+                📊 آخرین فیش صادر شده
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  onBotInteract({
+                    userId: activeUser.id,
+                    actionType: 'text',
+                    payload: '👑 پنل مدیریت (/admin)',
+                  })
+                }
+                disabled={isBusy}
+                className="py-2 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-xs font-bold text-amber-200 transition-all cursor-pointer text-center truncate active:scale-98 shadow-sm col-span-2 sm:col-span-1"
+              >
+                👑 پنل مدیریت (/admin)
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  onBotInteract({
+                    userId: activeUser.id,
+                    actionType: 'text',
+                    payload: '🪪 صف کارت ملی',
+                  })
+                }
+                disabled={isBusy}
+                className="py-2 px-3 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 border border-slate-700/80 text-xs font-semibold text-amber-300 transition-all cursor-pointer text-center truncate active:scale-98 shadow-sm col-span-2 sm:col-span-1"
+              >
+                🪪 صف کارت ملی
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  onBotInteract({
+                    userId: activeUser.id,
+                    actionType: 'text',
+                    payload: '📤 آپلود فیش',
+                  })
+                }
+                disabled={isBusy}
+                className="py-2 px-3 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 border border-slate-700/80 text-xs font-semibold text-emerald-300 transition-all cursor-pointer text-center truncate active:scale-98 shadow-sm"
+              >
+                📤 آپلود فیش
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  onBotInteract({
+                    userId: activeUser.id,
+                    actionType: 'text',
+                    payload: '👤 کد پرسنلی و اطلاعات من',
+                  })
+                }
+                disabled={isBusy}
+                className="py-2 px-3 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 border border-slate-700/80 text-xs font-semibold text-indigo-300 transition-all cursor-pointer text-center truncate active:scale-98 shadow-sm"
+              >
+                👤 کد پرسنلی و اطلاعات من
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() =>
+                  onBotInteract({
+                    userId: activeUser.id,
+                    actionType: 'text',
+                    payload: '📄 دریافت فیش حقوقی',
+                  })
+                }
+                disabled={isBusy}
+                className="py-2 px-3 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 border border-slate-700/80 text-xs font-semibold text-emerald-300 transition-all cursor-pointer text-center truncate active:scale-98 shadow-sm"
+              >
+                📄 دریافت فیش حقوقی
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  onBotInteract({
+                    userId: activeUser.id,
+                    actionType: 'text',
+                    payload: '📊 آخرین فیش صادر شده',
+                  })
+                }
+                disabled={isBusy}
+                className="py-2 px-3 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 border border-slate-700/80 text-xs font-semibold text-cyan-300 transition-all cursor-pointer text-center truncate active:scale-98 shadow-sm"
+              >
+                📊 آخرین فیش صادر شده
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  onBotInteract({
+                    userId: activeUser.id,
+                    actionType: 'text',
+                    payload: '👤 کد پرسنلی و اطلاعات من',
+                  })
+                }
+                disabled={isBusy}
+                className="py-2 px-3 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 border border-slate-700/80 text-xs font-semibold text-indigo-300 transition-all cursor-pointer text-center truncate active:scale-98 shadow-sm"
+              >
+                👤 کد پرسنلی و اطلاعات من
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  onBotInteract({
+                    userId: activeUser.id,
+                    actionType: 'text',
+                    payload: '💬 پشتیبانی',
+                  })
+                }
+                disabled={isBusy}
+                className="py-2 px-3 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 border border-slate-700/80 text-xs font-semibold text-violet-300 transition-all cursor-pointer text-center truncate active:scale-98 shadow-sm"
+              >
+                💬 پشتیبانی
+              </button>
+            </>
+          )}
+        </div>
         <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
           {isUserAdmin && (
             <>
