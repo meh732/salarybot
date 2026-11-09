@@ -161,417 +161,33 @@ function getInitialSeedState(): AppStateResponse {
     .filter(Boolean);
 
   const config: BotConfig = {
-    organizationName: process.env.ORG_NAME || 'هلدینگ صنعتی و فناوری پارس',
-    adminMessengerIds: Array.from(new Set(['100000001', '589402194', ...envAdminIds])),
+    organizationName: process.env.ORG_NAME || 'سامانه جامع فیش حقوقی',
+    adminMessengerIds: Array.from(new Set(envAdminIds)),
     adminSecretCode: process.env.ADMIN_SECRET || '123456',
+    adminClaimLocked: false,
     telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || '',
-    telegramBotUsername: '@ParsPayroll_Bot',
-    telegramChannelId: process.env.TELEGRAM_CHANNEL_ID || '@ParsOfficial_Channel',
+    telegramBotUsername: '',
+    telegramChannelId: process.env.TELEGRAM_CHANNEL_ID || '',
     baleBotToken: process.env.BALE_BOT_TOKEN || '',
-    baleBotUsername: '@ParsPayroll_BaleBot',
-    baleChannelId: process.env.BALE_CHANNEL_ID || '@ParsOfficial_Bale',
-    requireMandatoryChannel: true,
+    baleBotUsername: '',
+    baleChannelId: process.env.BALE_CHANNEL_ID || '',
+    requireMandatoryChannel: false,
     requireNationalCardPhoto: true,
     welcomeMessage:
-      'به سامانه هوشمند دریافت فیش حقوقی و خدمات پرسنلی خوش آمدید. از طریق دکمه‌های شیشه‌ای زیر می‌توانید فیش حقوقی خود را به تفکیک سال و ماه به صورت تصویر و فایل PDF دریافت نمایید.',
+      'به سامانه هوشمند دریافت فیش حقوقی و خدمات پرسنلی خوش آمدید. از طریق دکمه‌های زیر می‌توانید فیش حقوقی خود را به صورت تصویر و فایل PDF دریافت نمایید.',
     channelPromptMessage:
-      'کاربر گرامی، جهت استفاده از خدمات ربات و دریافت فیش حقوقی، ابتدا عضویت در کانال رسمی سازمان الزامی است. لطفاً پس از عضویت، روی دکمه شیشه‌ای «بررسی عضویت و ادامه» کلیک فرمایید.',
+      'کاربر گرامی، جهت استفاده از خدمات ربات و دریافت فیش حقوقی، ابتدا عضویت در کانال رسمی سازمان الزامی است. لطفاً پس از عضویت، روی دکمه «بررسی عضویت و ادامه» کلیک فرمایید.',
     verificationApprovedMessage:
-      'احراز هویت شما توسط مدیریت تأیید شد و حساب کاربری شما به کد پرسنلی اختصاصی متصل گردید. اکنون می‌توانید فیش‌های حقوقی خود را دریافت نمایید.',
-    supportContact: '@ParsHR_Support',
-    livePollingEnabled: false,
+      'احراز هویت شما توسط مدیریت تأیید شد و حساب کاربری شما به کد پرسنلی متصل گردید. اکنون می‌توانید فیش‌های حقوقی خود را دریافت نمایید.',
+    supportContact: '@Support',
+    livePollingEnabled: true,
   };
 
-  const personnelDirectory: PersonnelRecord[] = [
-    {
-      personnelCode: '1001',
-      fullName: 'مهندس علی محمدی',
-      nationalCode: '0014829103',
-      department: 'فناوری اطلاعات و هوش مصنوعی',
-      jobTitle: 'مهندس ارشد نرم‌افزار',
-      bankAccount: 'IR420170000000109283746501',
-      phoneNumber: '09123456781',
-    },
-    {
-      personnelCode: '1002',
-      fullName: 'سارا کریمی',
-      nationalCode: '0079182736',
-      department: 'منابع انسانی و امور اداری',
-      jobTitle: 'کارشناس ارشد منابع انسانی',
-      bankAccount: 'IR890170000000293847561022',
-      phoneNumber: '09123456782',
-    },
-    {
-      personnelCode: '1003',
-      fullName: 'رضا رضایی‌پور',
-      nationalCode: '0491827364',
-      department: 'مالی و حسابداری',
-      jobTitle: 'سرپرست حسابداری حقوق',
-      bankAccount: 'IR150170000000918273645509',
-      phoneNumber: '09123456783',
-    },
-    {
-      personnelCode: '1004',
-      fullName: 'حسین جلالی',
-      nationalCode: '1289403821',
-      department: 'عملیات و لجستیک انبار',
-      jobTitle: 'مسئول کنترل موجودی و انبار',
-      bankAccount: 'IR630170000000554433221108',
-      phoneNumber: '09123456784',
-    },
-    {
-      personnelCode: '1005',
-      fullName: 'مریم احمدی',
-      nationalCode: '0061928374',
-      department: 'فروش و بازرگانی',
-      jobTitle: 'کارشناس ارشد فروش سازمانی',
-      bankAccount: 'IR740170000000778899001123',
-      phoneNumber: '09123456785',
-    },
-    {
-      personnelCode: '1006',
-      fullName: 'دکتر مهدی کاظمی',
-      nationalCode: '0082736451',
-      department: 'تحقیق و توسعه (R&D)',
-      jobTitle: 'مدیر پروژه‌های صنعتی',
-      bankAccount: 'IR510170000000665544332219',
-      phoneNumber: '09123456786',
-    },
-  ];
-
-  const users: BotUser[] = [
-    {
-      id: 'usr-admin-master',
-      messengerId: '100000001',
-      username: 'organization_admin',
-      platform: 'telegram',
-      isAdmin: true,
-      adminSession: { step: 'idle', uploadYear: 1404, uploadMonth: 9 },
-      submittedName: '👑 مدیر کل سامانه (اکانت ادمین در بات)',
-      nationalCode: '0010000001',
-      phoneNumber: '09121111111',
-      nationalCardImageUrl: createSampleCardSvgUrl('مدیر کل سامانه', '0010000001', '۱۳۶۵/۰۱/۰۱', 'احمد'),
-      personnelCode: '1001',
-      department: 'مدیریت ارشد و کارگزینی',
-      jobTitle: 'ادمین کل ربات تلگرام و بله',
-      isChannelMember: true,
-      verificationStatus: 'approved',
-      isActive: true,
-      selectedYear: 1404,
-      joinedAt: '۱۴۰۴/۰۱/۰۱ - ۰۸:۰۰',
-      lastInteractionAt: '۱۴۰۴/۰۸/۱۵ - ۱۵:۰۰',
-    },
-    {
-      id: 'usr-tg-1001',
-      messengerId: '589402194',
-      username: 'ali_mohammadi_dev',
-      platform: 'telegram',
-      isAdmin: false,
-      submittedName: 'مهندس علی محمدی',
-      nationalCode: '0014829103',
-      phoneNumber: '09123456781',
-      nationalCardImageUrl: createSampleCardSvgUrl('مهندس علی محمدی', '0014829103', '۱۳۶۹/۰۴/۱۲', 'حسین'),
-      personnelCode: '1001',
-      department: 'فناوری اطلاعات و هوش مصنوعی',
-      jobTitle: 'مهندس ارشد نرم‌افزار',
-      isChannelMember: true,
-      verificationStatus: 'approved',
-      isActive: true,
-      selectedYear: 1404,
-      joinedAt: '۱۴۰۴/۰۱/۱۵ - ۰۹:۲۰',
-      lastInteractionAt: '۱۴۰۴/۰۸/۱۲ - ۱۴:۳۵',
-    },
-    {
-      id: 'usr-bale-1002',
-      messengerId: '194820411',
-      username: 'sara_karimi_hr',
-      platform: 'bale',
-      isAdmin: false,
-      submittedName: 'سارا کریمی',
-      nationalCode: '0079182736',
-      phoneNumber: '09123456782',
-      nationalCardImageUrl: createSampleCardSvgUrl('سارا کریمی', '0079182736', '۱۳۷۳/۰۹/۲۵', 'محمد'),
-      personnelCode: '1002',
-      department: 'منابع انسانی و امور اداری',
-      jobTitle: 'کارشناس ارشد منابع انسانی',
-      isChannelMember: true,
-      verificationStatus: 'approved',
-      isActive: true,
-      selectedYear: 1404,
-      joinedAt: '۱۴۰۴/۰۲/۱۰ - ۱۱:۰۵',
-      lastInteractionAt: '۱۴۰۴/۰۸/۱۱ - ۱۶:۱۰',
-    },
-    {
-      id: 'usr-tg-pending-1',
-      messengerId: '741952830',
-      username: 'hossein_jalali_wh',
-      platform: 'telegram',
-      isAdmin: false,
-      submittedName: 'حسین جلالی',
-      nationalCode: '1289403821',
-      phoneNumber: '09123456784',
-      nationalCardImageUrl: createSampleCardSvgUrl('حسین جلالی', '1289403821', '۱۳۶۷/۱۱/۰۳', 'عباس'),
-      personnelCode: null,
-      department: 'عملیات و لجستیک انبار',
-      jobTitle: 'مسئول کنترل موجودی و انبار',
-      isChannelMember: true,
-      verificationStatus: 'pending_admin',
-      isActive: true,
-      selectedYear: 1404,
-      joinedAt: '۱۴۰۴/۰۸/۱۴ - ۱۰:۱۵',
-      lastInteractionAt: '۱۴۰۴/۰۸/۱۴ - ۱۰:۱۸',
-    },
-    {
-      id: 'usr-bale-pending-2',
-      messengerId: '883019284',
-      username: 'maryam_ahmadi_sales',
-      platform: 'bale',
-      isAdmin: false,
-      submittedName: 'مریم احمدی',
-      nationalCode: '0061928374',
-      phoneNumber: '09123456785',
-      nationalCardImageUrl: createSampleCardSvgUrl('مریم احمدی', '0061928374', '۱۳۷۵/۰۲/۱۹', 'احمد'),
-      personnelCode: null,
-      department: 'فروش و بازرگانی',
-      jobTitle: 'کارشناس ارشد فروش سازمانی',
-      isChannelMember: true,
-      verificationStatus: 'pending_admin',
-      isActive: true,
-      selectedYear: 1404,
-      joinedAt: '۱۴۰۴/۰۸/۱۴ - ۱۲:۴۰',
-      lastInteractionAt: '۱۴۰۴/۰۸/۱۴ - ۱۲:۴۲',
-    },
-    {
-      id: 'usr-tg-new',
-      messengerId: '992018475',
-      username: 'reza_rezaeipour',
-      platform: 'telegram',
-      isAdmin: false,
-      submittedName: '',
-      nationalCode: '',
-      phoneNumber: '09123456783',
-      nationalCardImageUrl: '',
-      personnelCode: null,
-      department: 'نامشخص (کاربر جدید)',
-      jobTitle: 'در حال ثبت‌نام اولیه',
-      isChannelMember: false,
-      verificationStatus: 'unverified',
-      isActive: true,
-      selectedYear: 1404,
-      joinedAt: '۱۴۰۴/۰۸/۱۵ - ۰۸:۳۰',
-      lastInteractionAt: '۱۴۰۴/۰۸/۱۵ - ۰۸:۳۰',
-    },
-  ];
-
-  // Generate multi-year and multi-month payslips for 1403, 1404, 1405
+  const personnelDirectory: PersonnelRecord[] = [];
+  const users: BotUser[] = [];
   const payslips: PayslipItem[] = [];
-  const samplePeriods = [
-    { year: 1403, months: [10, 11, 12] },
-    { year: 1404, months: [1, 2, 3, 4, 5, 6, 7, 8] },
-    { year: 1405, months: [1, 2, 3, 4, 5, 6, 7] },
-  ];
-
-  for (const person of personnelDirectory) {
-    const codeNum = Number(person.personnelCode) || 1001;
-    const baseFactor = codeNum === 1001 ? 185000000 : codeNum === 1002 ? 152000000 : codeNum === 1003 ? 170000000 : 148000000;
-
-    for (const period of samplePeriods) {
-      const yearMultiplier = period.year === 1403 ? 0.78 : period.year === 1404 ? 1.0 : 1.25;
-      for (const m of period.months) {
-        const monthObj = PERSIAN_MONTHS.find((pm) => pm.number === m)!;
-        const baseSalary = Math.round(baseFactor * yearMultiplier);
-        const housingAllowance = Math.round(18000000 * yearMultiplier);
-        const groceryAllowance = Math.round(22000000 * yearMultiplier);
-        const childAllowance = codeNum % 2 === 1 ? Math.round(14500000 * yearMultiplier) : 0;
-        const overtimeHours = 12 + ((m * 3 + codeNum) % 22);
-        const overtimePay = Math.round(overtimeHours * 1450000 * yearMultiplier);
-        const bonusPay = m === 12 ? Math.round(baseSalary * 0.8) : Math.round((25000000 + (m % 4) * 5000000) * yearMultiplier);
-        const totalEarnings = baseSalary + housingAllowance + groceryAllowance + childAllowance + overtimePay + bonusPay;
-
-        const insuranceDeduction = Math.round((baseSalary + housingAllowance + groceryAllowance) * 0.07);
-        const taxDeduction = Math.round(totalEarnings * 0.055);
-        const loanDeduction = codeNum <= 1003 ? 15000000 : 8000000;
-        const otherDeduction = 3500000;
-        const totalDeductions = insuranceDeduction + taxDeduction + loanDeduction + otherDeduction;
-        const netPay = totalEarnings - totalDeductions;
-
-        payslips.push({
-          id: `ps-${person.personnelCode}-${period.year}-${String(m).padStart(2, '0')}`,
-          personnelCode: person.personnelCode,
-          employeeName: person.fullName,
-          nationalCode: person.nationalCode,
-          department: person.department,
-          jobTitle: person.jobTitle,
-          bankAccount: person.bankAccount,
-          year: period.year,
-          month: m,
-          monthName: monthObj.name,
-          workingDays: m <= 6 ? 31 : m === 12 ? 29 : 30,
-          overtimeHours,
-          baseSalary,
-          housingAllowance,
-          groceryAllowance,
-          childAllowance,
-          overtimePay,
-          bonusPay,
-          totalEarnings,
-          insuranceDeduction,
-          taxDeduction,
-          loanDeduction,
-          otherDeduction,
-          totalDeductions,
-          netPay,
-          sourceType: 'excel',
-          createdAt: `${toPersianDigitsServer(period.year)}/${toPersianDigitsServer(String(m).padStart(2, '0'))}/۲۸`,
-        });
-      }
-    }
-  }
-
-  const dummyState: AppStateResponse = {
-    config,
-    users,
-    personnelDirectory,
-    payslips,
-    messagesByUser: {},
-    broadcastLogs: [],
-  };
-
-  const messagesByUser: Record<string, BotMessage[]> = {
-    'usr-admin-master': [
-      {
-        id: 'msg-adm-init-1',
-        userId: 'usr-admin-master',
-        sender: 'user',
-        text: '/admin',
-        timestamp: '۱۵:۰۰',
-      },
-      {
-        id: 'msg-adm-init-2',
-        userId: 'usr-admin-master',
-        sender: 'bot',
-        text: `👑 **پنل مدیریت کل درون ربات (تلگرام و بله)**\n────────────────────\nمدیر گرامی خوش آمدید! شما بدون هیچ نیازی به پنل وب، تمام امکانات مدیریتی را مستقیماً از داخل همین ربات با دکمه‌های شیشه‌ای رنگی در اختیار دارید:\n\n• **صف احراز هویت**: مشاهده عکس کارت ملی، نام و آیدی تلگرام/بله کاربران جدید و اتصال آن‌ها به کد پرسنلی خاص\n• **بارگذاری فیش حقوقی در بات**: ارسال مستقیم فایل اکسل (.xlsx) یا PDF فیش‌ها در همین چت\n• **مدیریت کاربران**: فعال و غیرفعال کردن فوری دسترسی هر پرسنل\n• **ارسال پیام گروهی**: ارسال اطلاعیه به همه پرسنل از داخل چت\n• **تنظیمات کانال اجباری**: تغییر کانال اجباری و قوانین ربات\n\nلطفاً یکی از دکمه‌های شیشه‌ای رنگی زیر را انتخاب نمایید:`,
-        timestamp: '۱۵:۰۰',
-        inlineKeyboard: buildAdminInBotKeyboard(dummyState),
-      },
-    ],
-    'usr-tg-1001': [
-      {
-        id: 'msg-init-1',
-        userId: 'usr-tg-1001',
-        sender: 'user',
-        text: '/start',
-        timestamp: '۱۴:۳۰',
-      },
-      {
-        id: 'msg-init-2',
-        userId: 'usr-tg-1001',
-        sender: 'bot',
-        text: `سلام مهندس علی محمدی عزیز 👋\nبه ربات رسمی فیش حقوقی «${config.organizationName}» خوش آمدید.\n\n✅ وضعیت احراز هویت: تأیید شده\n🔢 کد پرسنلی متصل: ۱۰۰۱\n🏢 واحد: فناوری اطلاعات و هوش مصنوعی\n\nلطفاً از دکمه‌های شیشه‌ای رنگی زیر عملیات مورد نظر خود را انتخاب نمایید:`,
-        timestamp: '۱۴:۳۰',
-        inlineKeyboard: buildMainMenuKeyboard(false),
-      },
-    ],
-    'usr-bale-1002': [
-      {
-        id: 'msg-bale-1',
-        userId: 'usr-bale-1002',
-        sender: 'user',
-        text: '/start',
-        timestamp: '۱۶:۱۰',
-      },
-      {
-        id: 'msg-bale-2',
-        userId: 'usr-bale-1002',
-        sender: 'bot',
-        text: `سلام سارا کریمی عزیز 👋\nبه بازوی رسمی فیش حقوقی «${config.organizationName}» در پیام‌رسان بله خوش آمدید.\n\n✅ وضعیت احراز هویت: تأیید شده\n🔢 کد پرسنلی متصل: ۱۰۰۲\n🏢 واحد: منابع انسانی و امور اداری\n\nجهت مشاهده و دانلود تصویر و فایل PDF فیش حقوقی خود، روی دکمه شیشه‌ای زیر کلیک کنید:`,
-        timestamp: '۱۶:۱۰',
-        inlineKeyboard: buildMainMenuKeyboard(false),
-      },
-    ],
-    'usr-tg-pending-1': [
-      {
-        id: 'msg-p1-1',
-        userId: 'usr-tg-pending-1',
-        sender: 'user',
-        text: '/start',
-        timestamp: '۱۰:۱۵',
-      },
-      {
-        id: 'msg-p1-2',
-        userId: 'usr-tg-pending-1',
-        sender: 'user',
-        text: 'حسین جلالی - کد ملی ۱۲۸۹۴۰۳۸۲۱',
-        timestamp: '۱۰:۱۶',
-        attachment: {
-          type: 'national_card',
-          imageUrl: createSampleCardSvgUrl('حسین جلالی', '1289403821', '۱۳۶۷/۱۱/۰۳', 'عباس'),
-          caption: 'تصویر کارت ملی هوشمند - حسین جلالی',
-        },
-      },
-      {
-        id: 'msg-p1-3',
-        userId: 'usr-tg-pending-1',
-        sender: 'bot',
-        text: `✅ اطلاعات هویتی و تصویر کارت ملی شما با موفقیت دریافت شد و به چت ربات ادمین ارسال گردید.\n\n📋 مشخصات ثبت شده:\n• نام و نام خانوادگی: حسین جلالی\n• پیام‌رسان: تلگرام (ID: 741952830)\n• وضعیت: در انتظار بررسی ادمین و اتصال به کد پرسنلی`,
-        timestamp: '۱۰:۱۸',
-        inlineKeyboard: [
-          [{ text: '🔄 بررسی مجدد وضعیت احراز هویت', callbackData: 'check_verification', colorVariant: 'amber' }],
-          [{ text: '💬 پیام به پشتیبانی کارگزینی', callbackData: 'menu_support', colorVariant: 'violet' }],
-        ],
-      },
-    ],
-    'usr-bale-pending-2': [
-      {
-        id: 'msg-p2-1',
-        userId: 'usr-bale-pending-2',
-        sender: 'user',
-        text: 'مریم احمدی',
-        timestamp: '۱۲:۴۰',
-        attachment: {
-          type: 'national_card',
-          imageUrl: createSampleCardSvgUrl('مریم احمدی', '0061928374', '۱۳۷۵/۰۲/۱۹', 'احمد'),
-          caption: 'تصویر کارت ملی - مریم احمدی (ارسالی از بله)',
-        },
-      },
-      {
-        id: 'msg-p2-2',
-        userId: 'usr-bale-pending-2',
-        sender: 'bot',
-        text: `⏳ درخواست احراز هویت شما در پیام‌رسان بله ثبت گردید و مستقیماً به ربات ادمین ارسال شد.\n\n• نام: مریم احمدی\n• آیدی بله: 883019284\n• وضعیت: منتظر لینک شدن به کد پرسنلی توسط ادمین`,
-        timestamp: '۱۲:۴۲',
-        inlineKeyboard: [
-          [{ text: '🔄 استعلام وضعیت تأیید ادمین', callbackData: 'check_verification', colorVariant: 'amber' }],
-        ],
-      },
-    ],
-    'usr-tg-new': [
-      {
-        id: 'msg-new-1',
-        userId: 'usr-tg-new',
-        sender: 'bot',
-        text: `👋 سلام! به ربات هوشمند فیش حقوقی خوش آمدید.\n\nبرای شروع فرآیند عضویت در کانال اجباری و احراز هویت اولیه (ارسال نام و تصویر کارت ملی)، روی دکمه شیشه‌ای «شروع و احراز هویت (/start)» کلیک کنید.`,
-        timestamp: '۰۸:۳۰',
-        inlineKeyboard: [
-          [{ text: '🚀 شروع و احراز هویت (/start)', callbackData: 'start_bot', colorVariant: 'emerald' }],
-        ],
-      },
-    ],
-  };
-
-  const broadcastLogs: BroadcastLog[] = [
-    {
-      id: 'bc-101',
-      title: 'اطلاعیه بارگذاری فیش حقوقی مهر و آبان ۱۴۰۴',
-      message:
-        'همکاران گرامی، فیش‌های حقوقی مهر و آبان ماه ۱۴۰۴ در سامانه بارگذاری گردید. هم‌اکنون می‌توانید با انتخاب سال و ماه، تصویر و فایل PDF فیش خود را دریافت نمایید.',
-      targetFilter: 'all_active',
-      buttonText: '📄 دریافت فوری فیش حقوقی',
-      buttonColor: 'emerald',
-      sentCount: 2,
-      createdAt: '۱۴۰۴/۰۸/۱۰ - ۱۱:۳۰',
-    },
-  ];
+  const messagesByUser: Record<string, BotMessage[]> = {};
+  const broadcastLogs: BroadcastLog[] = [];
 
   return {
     config,
@@ -619,12 +235,6 @@ function loadState(): AppStateResponse {
     if (fs.existsSync(DB_FILE)) {
       const raw = fs.readFileSync(DB_FILE, 'utf-8');
       const parsed = JSON.parse(raw) as AppStateResponse;
-      // Ensure the master admin account always exists if upgrading from an older DB snapshot
-      if (!parsed.users.some((u) => u.id === 'usr-admin-master')) {
-        const seed = getInitialSeedState();
-        parsed.users.unshift(seed.users[0]);
-        parsed.messagesByUser['usr-admin-master'] = seed.messagesByUser['usr-admin-master'];
-      }
       applyEnvOverrides(parsed);
       return parsed;
     }
@@ -3224,6 +2834,139 @@ console.log("🚀 Payroll Bot (with Full In-Bot Admin Panel /admin) Started for:
     res.send(script);
   });
 
+  // Long-Polling Service: Runs in background when token is configured, ensuring 100% immediate replies
+  // even if server is on plain HTTP without an SSL certificate!
+  let isPollingActive = false;
+  let hasClearedTgWebhook = false;
+  let hasClearedBaleWebhook = false;
+  let telegramOffset = 0;
+  let baleOffset = 0;
+
+  async function pollTelegram() {
+    const token = state.config.telegramBotToken?.trim();
+    if (!token) return;
+    try {
+      // Auto-clear webhook if previously set so getUpdates immediately receives messages
+      if (!hasClearedTgWebhook) {
+        await fetch(`https://api.telegram.org/bot${token}/deleteWebhook?drop_pending_updates=false`).catch(() => {});
+        hasClearedTgWebhook = true;
+      }
+      const url = `https://api.telegram.org/bot${token}/getUpdates?offset=${telegramOffset}&timeout=15`;
+      const res = await fetch(url, { method: 'GET' });
+      const data = (await res.json()) as { ok?: boolean; result?: any[] };
+      if (data && data.ok && Array.isArray(data.result)) {
+        for (const update of data.result) {
+          telegramOffset = Math.max(telegramOffset, update.update_id + 1);
+          await processIncomingUpdate('telegram', update);
+        }
+      }
+    } catch (err) {
+      // transient network timeout or rate limit
+    }
+  }
+
+  async function pollBale() {
+    const token = state.config.baleBotToken?.trim();
+    if (!token) return;
+    try {
+      if (!hasClearedBaleWebhook) {
+        await fetch(`https://tapi.bale.ai/bot${token}/deleteWebhook`).catch(() => {});
+        hasClearedBaleWebhook = true;
+      }
+      const url = `https://tapi.bale.ai/bot${token}/getUpdates?offset=${baleOffset}&timeout=15`;
+      const res = await fetch(url, { method: 'GET' });
+      const data = (await res.json()) as { ok?: boolean; result?: any[] };
+      if (data && data.ok && Array.isArray(data.result)) {
+        for (const update of data.result) {
+          baleOffset = Math.max(baleOffset, update.update_id + 1);
+          await processIncomingUpdate('bale', update);
+        }
+      }
+    } catch (err) {
+      // transient network timeout
+    }
+  }
+
+  async function processIncomingUpdate(platform: 'telegram' | 'bale', update: any) {
+    try {
+      const msg = update?.message || update?.callback_query?.message;
+      const from = update?.message?.from || update?.callback_query?.from;
+      const textOrData = update?.callback_query?.data || update?.message?.text || '/start';
+
+      if (from && msg) {
+        const messengerId = String(from.id);
+        let botUser = state.users.find((u) => u.messengerId === messengerId && u.platform === platform);
+        if (!botUser) {
+          botUser = {
+            id: `usr-${platform}-${messengerId}`,
+            messengerId,
+            username: from.username || `user_${messengerId}`,
+            platform,
+            isAdmin: Boolean(state.config.adminMessengerIds?.includes(messengerId)),
+            submittedName: `${from.first_name || ''} ${from.last_name || ''}`.trim(),
+            nationalCode: '',
+            phoneNumber: '',
+            nationalCardImageUrl: '',
+            personnelCode: null,
+            department: 'کاربر جدید',
+            jobTitle: 'تعیین نشده',
+            isChannelMember: false,
+            verificationStatus: 'unverified',
+            isActive: true,
+            selectedYear: 1404,
+            joinedAt: `۱۴۰۴/۰۸/۱۵ - ${nowTimeStr()}`,
+            lastInteractionAt: `۱۴۰۴/۰۸/۱۵ - ${nowTimeStr()}`,
+          };
+          state.users.push(botUser);
+          state.messagesByUser[botUser.id] = [];
+        }
+
+        const result = handleBotInteraction(state, {
+          userId: botUser.id,
+          actionType: update?.callback_query ? 'callback' : textOrData.startsWith('/') ? 'command' : 'text',
+          payload: textOrData,
+        });
+        saveState(state);
+
+        const token = platform === 'telegram' ? state.config.telegramBotToken : state.config.baleBotToken;
+        const lastBotMsg = [...result.messages].reverse().find((m) => m.sender === 'bot');
+        if (token && lastBotMsg) {
+          const sendUrl =
+            platform === 'telegram'
+              ? `https://api.telegram.org/bot${token}/sendMessage`
+              : `https://tapi.bale.ai/bot${token}/sendMessage`;
+
+          const inline_keyboard = lastBotMsg.inlineKeyboard?.map((row) =>
+            row.map((b) => ({
+              text: b.text,
+              callback_data: b.callbackData || 'main_menu',
+            }))
+          );
+
+          await fetch(sendUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: msg.chat.id,
+              text: lastBotMsg.text,
+              reply_markup: inline_keyboard ? { inline_keyboard } : undefined,
+            }),
+          });
+        }
+      }
+    } catch (e) {
+      console.error('Error handling update:', e);
+    }
+  }
+
+  // Start background loop
+  async function startPollingLoop() {
+    while (true) {
+      await Promise.all([pollTelegram(), pollBale()]);
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -3240,6 +2983,7 @@ console.log("🚀 Payroll Bot (with Full In-Bot Admin Panel /admin) Started for:
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
+    startPollingLoop().catch(console.error);
   });
 }
 

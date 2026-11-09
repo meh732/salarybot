@@ -1,0 +1,26 @@
+{
+  "config": {
+    "organizationName": "سامانه جامع فیش حقوقی",
+    "adminMessengerIds": [],
+    "adminSecretCode": "123456",
+    "adminClaimLocked": false,
+    "telegramBotToken": "",
+    "telegramBotUsername": "",
+    "telegramChannelId": "",
+    "baleBotToken": "",
+    "baleBotUsername": "",
+    "baleChannelId": "",
+    "requireMandatoryChannel": false,
+    "requireNationalCardPhoto": true,
+    "welcomeMessage": "به سامانه هوشمند دریافت فیش حقوقی و خدمات پرسنلی خوش آمدید. از طریق دکمه‌های زیر می‌توانید فیش حقوقی خود را به صورت تصویر و فایل PDF دریافت نمایید.",
+    "channelPromptMessage": "کاربر گرامی، جهت استفاده از خدمات ربات و دریافت فیش حقوقی، ابتدا عضویت در کانال رسمی سازمان الزامی است. لطفاً پس از عضویت، روی دکمه «بررسی عضویت و ادامه» کلیک فرمایید.",
+    "verificationApprovedMessage": "احراز هویت شما توسط مدیریت تأیید شد و حساب کاربری شما به کد پرسنلی متصل گردید. اکنون می‌توانید فیش‌های حقوقی خود را دریافت نمایید.",
+    "supportContact": "@Support",
+    "livePollingEnabled": true
+  },
+  "users": [],
+  "personnelDirectory": [],
+  "payslips": [],
+  "messagesByUser": {},
+  "broadcastLogs": []
+}
