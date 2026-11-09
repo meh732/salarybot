@@ -15,7 +15,7 @@ import {
   PersonnelRecord,
 } from './src/types/payroll';
 
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'payroll-db.json');
 
@@ -155,15 +155,21 @@ function buildAdminInBotKeyboard(state: AppStateResponse): BotButton[][] {
 }
 
 function getInitialSeedState(): AppStateResponse {
+  const envAdminIds = (process.env.ADMIN_IDS || '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
+
   const config: BotConfig = {
-    organizationName: 'هلدینگ صنعتی و فناوری پارس',
-    adminMessengerIds: ['100000001', '589402194'],
-    telegramBotToken: '',
+    organizationName: process.env.ORG_NAME || 'هلدینگ صنعتی و فناوری پارس',
+    adminMessengerIds: Array.from(new Set(['100000001', '589402194', ...envAdminIds])),
+    adminSecretCode: process.env.ADMIN_SECRET || '123456',
+    telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || '',
     telegramBotUsername: '@ParsPayroll_Bot',
-    telegramChannelId: '@ParsOfficial_Channel',
-    baleBotToken: '',
+    telegramChannelId: process.env.TELEGRAM_CHANNEL_ID || '@ParsOfficial_Channel',
+    baleBotToken: process.env.BALE_BOT_TOKEN || '',
     baleBotUsername: '@ParsPayroll_BaleBot',
-    baleChannelId: '@ParsOfficial_Bale',
+    baleChannelId: process.env.BALE_CHANNEL_ID || '@ParsOfficial_Bale',
     requireMandatoryChannel: true,
     requireNationalCardPhoto: true,
     welcomeMessage:
@@ -577,6 +583,34 @@ function getInitialSeedState(): AppStateResponse {
   };
 }
 
+function applyEnvOverrides(state: AppStateResponse): void {
+  if (!state.config.adminSecretCode) {
+    state.config.adminSecretCode = process.env.ADMIN_SECRET || '123456';
+  }
+  if (process.env.ADMIN_SECRET) {
+    state.config.adminSecretCode = process.env.ADMIN_SECRET.trim();
+  }
+  if (process.env.TELEGRAM_BOT_TOKEN) {
+    state.config.telegramBotToken = process.env.TELEGRAM_BOT_TOKEN.trim();
+  }
+  if (process.env.BALE_BOT_TOKEN) {
+    state.config.baleBotToken = process.env.BALE_BOT_TOKEN.trim();
+  }
+  if (process.env.TELEGRAM_CHANNEL_ID) {
+    state.config.telegramChannelId = process.env.TELEGRAM_CHANNEL_ID.trim();
+  }
+  if (process.env.BALE_CHANNEL_ID) {
+    state.config.baleChannelId = process.env.BALE_CHANNEL_ID.trim();
+  }
+  if (process.env.ADMIN_IDS) {
+    const envAdmins = process.env.ADMIN_IDS.split(',')
+      .map((x) => x.trim())
+      .filter(Boolean);
+    const merged = new Set([...(state.config.adminMessengerIds || []), ...envAdmins]);
+    state.config.adminMessengerIds = Array.from(merged);
+  }
+}
+
 function loadState(): AppStateResponse {
   try {
     if (!fs.existsSync(DATA_DIR)) {
@@ -591,12 +625,14 @@ function loadState(): AppStateResponse {
         parsed.users.unshift(seed.users[0]);
         parsed.messagesByUser['usr-admin-master'] = seed.messagesByUser['usr-admin-master'];
       }
+      applyEnvOverrides(parsed);
       return parsed;
     }
   } catch (err) {
     console.error('Error reading DB file, initializing fresh state:', err);
   }
   const initial = getInitialSeedState();
+  applyEnvOverrides(initial);
   saveState(initial);
   return initial;
 }
@@ -821,13 +857,121 @@ function handleBotInteraction(
   };
 
   const payload = (params.payload || '').trim();
+  const masterSecret = (state.config.adminSecretCode || process.env.ADMIN_SECRET || '123456').trim();
   const normalizedAdmins = (state.config.adminMessengerIds || []).map((a) =>
     a.trim().toLowerCase().replace(/^@/, '')
   );
-  const isUserAdmin =
+  let isUserAdmin =
     Boolean(user.isAdmin) ||
     normalizedAdmins.includes(user.messengerId.toLowerCase()) ||
     (Boolean(user.username) && normalizedAdmins.includes(user.username.toLowerCase().replace(/^@/, '')));
+
+  // =========================================================================
+  // ZERO-PANEL WEBHOOK ADMIN CLAIM FLOW (`/setadmin <secret>`, `/claim <secret>`, or 1-Click Button)
+  // Strictly ONE-TIME USE: Automatically locks (`adminClaimLocked = true`) after the first Admin registers!
+  // =========================================================================
+  if (
+    payload.startsWith('/setadmin') ||
+    payload.startsWith('/claim') ||
+    (payload.startsWith('/admin ') && payload.split(/\s+/)[1]) ||
+    payload.startsWith('claim_admin_exec:')
+  ) {
+    pushUserMsg(payload.startsWith('claim_admin_exec:') ? `🔑 ثبت اکانت به عنوان ادمین کل در بات` : payload);
+
+    // Check if `/setadmin` has already been used once and is locked for all other users
+    if (state.config.adminClaimLocked && !isUserAdmin) {
+      pushBotMsg(
+        `🔒 **دستور معرفی ادمین (\`/setadmin\`) غیرفعال شده است!**\n────────────────────\nاین دستور **یک‌بار مصرف** بوده و پس از ثبت اولین ادمین کل، به صورت خودکار برای سایر کاربران **قفل و غیرفعال** گردیده است.\n\n⚠️ در صورت نیاز به افزودن ادمین جدید، فقط **ادمین کل فعلی** می‌تواند از داخل منوی \`/admin\` ⬅️ \`⚙️ تنظیمات\` ⬅️ \`👑 مدیریت ادمین‌ها\` آیدی عددی شما (\`${user.messengerId}\`) را اضافه نماید.`,
+        [[{ text: '🏠 بازگشت به منوی اصلی', callbackData: 'main_menu', colorVariant: 'rose' }]]
+      );
+      return { user, messages: chat };
+    }
+
+    const providedPin = payload.startsWith('claim_admin_exec:')
+      ? payload.split(':')[1]?.trim() || ''
+      : toEnglishDigitsServer(payload.replace(/^\/(setadmin|claim|admin)\s*/i, '')).trim();
+
+    if (!providedPin) {
+      pushBotMsg(
+        `🔑 **معرفی و ثبت اولین ادمین کل از داخل ربات (یک‌بار مصرف)**\n────────────────────\n• آیدی عددی شما: \`${user.messengerId}\`\n• یوزرنیم: \`@${user.username}\`\n\nبرای اینکه همین اکانت شما در حالت وب‌هوک به عنوان **ادمین کل** ثبت شود، دستور زیر را به همراه رمز مستر (پیش‌فرض: \`123456\`) ارسال کنید:\n\n\`/setadmin 123456\`\n\n🔒 **امنیت یک‌بار مصرف:** به محض ثبت شما، این دستور به صورت خودکار **قفل و برای تمام کاربران دیگر غیرفعال** می‌شود!`,
+        [
+          [
+            {
+              text: `⚡ ثبت فوری به عنوان ادمین کل و قفل خودکار دستور`,
+              callbackData: `claim_admin_exec:${masterSecret}`,
+              colorVariant: 'amber',
+            },
+          ],
+          [{ text: '🏠 بازگشت به منوی اصلی', callbackData: 'main_menu', colorVariant: 'emerald' }],
+        ]
+      );
+      return { user, messages: chat };
+    }
+
+    if (providedPin !== toEnglishDigitsServer(masterSecret)) {
+      pushBotMsg(
+        `❌ **رمز مستر ادمین نامعتبر است!**\nلطفاً دستور را به صورت \`/setadmin رمز_مستر\` ارسال فرمایید (رمز پیش‌فرض اولیه: \`123456\` یا مقدار \`ADMIN_SECRET\` در فایل \`.env\` سرور).`,
+        [[{ text: '🏠 بازگشت', callbackData: 'main_menu', colorVariant: 'rose' }]]
+      );
+      return { user, messages: chat };
+    }
+
+    // Promote this user to Master Admin directly inside the Bot AND immediately lock `/setadmin` for everyone else!
+    user.isAdmin = true;
+    user.isChannelMember = true;
+    user.verificationStatus = 'approved';
+    user.isActive = true;
+    if (!user.personnelCode) user.personnelCode = '1001';
+    if (!user.submittedName) user.submittedName = `👑 ادمین کل (${user.username})`;
+    user.adminSession = { step: 'idle', uploadYear: 1404, uploadMonth: 9 };
+
+    if (!state.config.adminMessengerIds) {
+      state.config.adminMessengerIds = [];
+    }
+    if (!state.config.adminMessengerIds.includes(user.messengerId)) {
+      state.config.adminMessengerIds.push(user.messengerId);
+    }
+    // ONE-TIME LOCK: Disable `/setadmin` for all other users automatically!
+    state.config.adminClaimLocked = true;
+    isUserAdmin = true;
+
+    pushBotMsg(
+      `🎉 **تبریک! اکانت شما (\`${user.messengerId}\` / \`@${user.username}\`) به عنوان «👑 ادمین کل سامانه» ثبت شد!**\n🔒 **قفل امنیتی خودکار فعال شد:** دستور \`/setadmin\` از این لحظه به صورت خودکار **قفل و برای تمامی کاربران دیگر غیرفعال** گردید تا هیچ شخص دیگری نتواند از آن استفاده کند.\n────────────────────\nاکنون تمام امکانات مدیریتی ربات در اختیار شماست:`,
+      buildAdminInBotKeyboard(state)
+    );
+    return { user, messages: chat };
+  }
+
+  if (payload === 'claim_admin_prompt' || (!isUserAdmin && (payload === '/admin' || payload === 'adm_panel'))) {
+    pushUserMsg(payload === 'claim_admin_prompt' ? '🔑 بررسی دسترسی مدیریت' : payload);
+
+    if (state.config.adminClaimLocked) {
+      pushBotMsg(
+        `⛔ **عدم دسترسی به پنل مدیریت ربات**\n────────────────────\nاکانت شما (\`${user.messengerId}\`) دسترسی ادمین ندارد و دستور معرفی اولیه ادمین (\`/setadmin\`) نیز پس از ثبت اولین مدیر **قفل و غیرفعال شده است**.\n\nتنها ادمین کل فعلی می‌تواند از داخل منوی \`/admin\` آیدی عددی شما را به لیست مدیران اضافه نماید.`,
+        [[{ text: '🏠 بازگشت به منوی پرسنلی', callbackData: 'main_menu', colorVariant: 'rose' }]]
+      );
+      return { user, messages: chat };
+    }
+
+    pushBotMsg(
+      `👑 **معرفی اولین ادمین بدون نیاز به پنل وب (یک‌بار مصرف)**\n────────────────────\nاکانت فعلی شما (\`${
+        user.messengerId
+      }\` - \`@${
+        user.username
+      }\`) هنوز در لیست ادمین‌ها ثبت نشده است.\n\nچون هنوز دستور معرفی اولیه قفل نشده است، کافی است دستور زیر را با رمز مستر (پیش‌فرض: \`123456\`) بفرستید یا روی دکمه زیر بزنید:\n\`/setadmin 123456\`\n\n🔒 **توجه:** به محض اینکه یک بار ثبت شوید، این دستور **به طور خودکار برای بقیه کاربران غیرفعال و قفل می‌شود!**`,
+      [
+        [
+          {
+            text: '⚡ ثبت فوری به عنوان ادمین کل (و قفل شدن برای بقیه)',
+            callbackData: `claim_admin_exec:${masterSecret}`,
+            colorVariant: 'amber',
+          },
+        ],
+        [{ text: '🏠 بازگشت به منوی پرسنلی', callbackData: 'main_menu', colorVariant: 'emerald' }],
+      ]
+    );
+    return { user, messages: chat };
+  }
 
   // Universal `/id` or `/myid` command so anyone can discover their exact Numeric ID for Admin setup
   if (payload === '/id' || payload === '/myid' || payload === 'my_id') {
@@ -837,12 +981,23 @@ function handleBotInteraction(
         user.messengerId
       }\`\n• یوزرنیم: \`@${user.username}\`\n• نقش فعلی شما در ربات: **${
         isUserAdmin ? '👑 ادمین کل سامانه (دسترسی به /admin)' : '👤 کاربر پرسنلی عادی'
-      }**\n\n💡 **نکته برای ادمین:** اگر می‌خواهید این اکانت به عنوان **ادمین کل** شناخته شود، کافی است عدد \`${
-        user.messengerId
-      }\` یا یوزرنیم \`@${user.username}\` را در بخش «معرفی آیدی ادمین» وارد نمایید.`,
+      }**\n• وضعیت دستور \`/setadmin\`: **${
+        state.config.adminClaimLocked ? '🔒 قفل شده (غیرفعال برای سایر کاربران)' : '🔓 آماده ثبت اولین ادمین (یک‌بار مصرف)'
+      }**`,
       isUserAdmin
         ? [[{ text: '👑 ورود به پنل مدیریت درون ربات (/admin)', callbackData: 'adm_panel', colorVariant: 'amber' }]]
-        : [[{ text: '🏠 بازگشت به منوی اصلی', callbackData: 'main_menu', colorVariant: 'emerald' }]]
+        : state.config.adminClaimLocked
+        ? [[{ text: '🏠 بازگشت به منوی اصلی', callbackData: 'main_menu', colorVariant: 'emerald' }]]
+        : [
+            [
+              {
+                text: '🔑 ثبت به عنوان اولین ادمین کل (/setadmin)',
+                callbackData: 'claim_admin_prompt',
+                colorVariant: 'amber',
+              },
+            ],
+            [{ text: '🏠 بازگشت به منوی اصلی', callbackData: 'main_menu', colorVariant: 'emerald' }],
+          ]
     );
     return { user, messages: chat };
   }
@@ -1438,9 +1593,11 @@ function handleBotInteraction(
 
       pushUserMsg('⚙️ تنظیمات کانال اجباری و قوانین بات');
       pushBotMsg(
-        `⚙️ **تنظیمات کانال اجباری و قوانین امنیتی در ربات**\n────────────────────\n• نام سازمان: **${
+        `⚙️ **تنظیمات کانال اجباری، ادمین‌ها و قوانین امنیتی در ربات**\n────────────────────\n• نام سازمان: **${
           state.config.organizationName
-        }**\n• کانال اجباری تلگرام: \`${state.config.telegramChannelId}\`\n• کانال اجباری بله: \`${
+        }**\n• آیدی‌های ادمین فعلی: \`${(state.config.adminMessengerIds || []).join(', ')}\`\n• رمز مستر معرفی ادمین (\`/setadmin\`): \`${
+          state.config.adminSecretCode || '123456'
+        }\`\n• کانال اجباری تلگرام: \`${state.config.telegramChannelId}\`\n• کانال اجباری بله: \`${
           state.config.baleChannelId
         }\`\n• الزام عضویت در کانال پس از استارت: **${
           state.config.requireMandatoryChannel ? 'فعال ✅' : 'غیرفعال ❌'
@@ -1448,6 +1605,13 @@ function handleBotInteraction(
           state.config.requireNationalCardPhoto ? 'فعال ✅' : 'غیرفعال ❌'
         }**\n\nبرای تغییر هر مورد روی دکمه شیشه‌ای مربوطه کلیک کنید:`,
         [
+          [
+            {
+              text: '👑 مدیریت ادمین‌ها و افزودن آیدی ادمین در بات',
+              callbackData: 'adm_manage_admins',
+              colorVariant: 'amber',
+            },
+          ],
           [
             {
               text: `📢 عضویت اجباری کانال: ${state.config.requireMandatoryChannel ? '🟢 فعال' : '🔴 غیرفعال'}`,
@@ -1485,6 +1649,80 @@ function handleBotInteraction(
       return { user, messages: chat };
     }
 
+    if (payload === 'adm_manage_admins' || payload === 'adm_toggle_claim_lock') {
+      user.adminSession.step = 'idle';
+      if (payload === 'adm_toggle_claim_lock') {
+        state.config.adminClaimLocked = !state.config.adminClaimLocked;
+        pushUserMsg(
+          state.config.adminClaimLocked
+            ? '🔒 قفل کردن دستور /setadmin برای سایر کاربران'
+            : '🔓 باز کردن موقت دستور /setadmin برای ثبت یک ادمین جدید'
+        );
+      } else {
+        pushUserMsg('👑 مدیریت لیست ادمین‌ها و قفل امنیتی /setadmin');
+      }
+      const currentAdmins = state.config.adminMessengerIds || [];
+      const isLocked = Boolean(state.config.adminClaimLocked);
+      pushBotMsg(
+        `👑 **مدیریت ادمین‌های ربات و قفل امنیتی یک‌بار مصرف**\n────────────────────\n📋 **لیست آیدی‌های ادمین فعلی:**\n${
+          currentAdmins.map((id) => `• \`${id}\``).join('\n') || '• بدون ادمین'
+        }\n\n🔒 **وضعیت دستور \`/setadmin\` برای سایر کاربران:**\n**${
+          isLocked
+            ? '🔒 قفل شده و غیرفعال (هیچ کاربر دیگری نمی‌تواند با /setadmin ادمین شود)'
+            : '🔓 باز (فقط برای اولین ثبت، و بلافاصله بعد از ۱ بار ثبت خودکار قفل می‌شود)'
+        }**\n\n🔐 **رمز مستر فعلی:** \`${state.config.adminSecretCode || '123456'}\`\n\n💡 برای اضافه کردن ادمین جدید می‌توانید مستقیماً آیدی عددی او را با دکمه اول وارد کنید:`,
+        [
+          [
+            {
+              text: '➕ افزودن مستقیم آیدی عددی یا یوزرنیم ادمین جدید',
+              callbackData: 'adm_add_admin_id',
+              colorVariant: 'emerald',
+            },
+          ],
+          [
+            {
+              text: isLocked
+                ? '🔓 باز کردن موقت دستور /setadmin (برای ۱ ثبت دیگر)'
+                : '🔒 قفل کردن فوری دستور /setadmin برای همه',
+              callbackData: 'adm_toggle_claim_lock',
+              colorVariant: isLocked ? 'amber' : 'rose',
+            },
+          ],
+          [
+            {
+              text: '🔐 تغییر رمز مستر معرفی ادمین (/setadmin)',
+              callbackData: 'adm_change_secret',
+              colorVariant: 'violet',
+            },
+          ],
+          [{ text: '🔙 بازگشت به تنظیمات ربات', callbackData: 'adm_settings_menu', colorVariant: 'cyan' }],
+        ]
+      );
+      return { user, messages: chat };
+    }
+
+    if (payload === 'adm_add_admin_id') {
+      user.adminSession.step = 'awaiting_new_admin_id';
+      pushUserMsg('➕ افزودن آیدی ادمین جدید در بات');
+      pushBotMsg(
+        `🔢 لطفاً **شماره آیدی عددی (Chat ID)** یا **یوزرنیم** شخص مورد نظر را در چت تایپ و ارسال کنید تا فوراً به لیست ادمین‌های کل ربات اضافه شود (مثال: \`589402194\` یا \`@my_admin\`):`,
+        [[{ text: '🔙 انصراف', callbackData: 'adm_manage_admins', colorVariant: 'rose' }]]
+      );
+      return { user, messages: chat };
+    }
+
+    if (payload === 'adm_change_secret') {
+      user.adminSession.step = 'awaiting_new_admin_secret';
+      pushUserMsg('🔐 تغییر رمز مستر معرفی ادمین');
+      pushBotMsg(
+        `🔐 لطفاً **رمز مستر جدید** برای دستور \`/setadmin\` را تایپ و ارسال نمایید (فعلی: \`${
+          state.config.adminSecretCode || '123456'
+        }\`):`,
+        [[{ text: '🔙 انصراف', callbackData: 'adm_manage_admins', colorVariant: 'rose' }]]
+      );
+      return { user, messages: chat };
+    }
+
     if (payload === 'adm_edit_tg_channel') {
       user.adminSession.step = 'awaiting_tg_channel_id';
       pushUserMsg('✏️ تغییر آیدی کانال تلگرام');
@@ -1517,6 +1755,48 @@ function handleBotInteraction(
     // 12. Handle Conversational Text Inputs for Admin Session Steps inside Bot
     if (params.actionType === 'text' && user.adminSession.step !== 'idle' && !payload.startsWith('/')) {
       const currentStep = user.adminSession.step;
+
+      if (currentStep === 'awaiting_new_admin_id') {
+        user.adminSession.step = 'idle';
+        const cleanAdminId = toEnglishDigitsServer(payload).trim().replace(/^@/, '');
+        pushUserMsg(payload);
+        if (cleanAdminId) {
+          if (!state.config.adminMessengerIds) state.config.adminMessengerIds = [];
+          if (!state.config.adminMessengerIds.includes(cleanAdminId)) {
+            state.config.adminMessengerIds.push(cleanAdminId);
+          }
+          // Also mark matching user in state.users as admin if already joined
+          const matchedUser = state.users.find(
+            (u) =>
+              u.messengerId.toLowerCase() === cleanAdminId.toLowerCase() ||
+              u.username.toLowerCase().replace(/^@/, '') === cleanAdminId.toLowerCase()
+          );
+          if (matchedUser) {
+            matchedUser.isAdmin = true;
+            matchedUser.verificationStatus = 'approved';
+            matchedUser.isChannelMember = true;
+          }
+          pushBotMsg(
+            `✅ آیدی \`${cleanAdminId}\` با موفقیت به لیست **ادمین‌های کل ربات** اضافه شد!\nاکنون این شخص می‌تواند در تلگرام یا بله دستور \`/admin\` را ارسال نماید.`,
+            buildAdminInBotKeyboard(state)
+          );
+          return { user, messages: chat };
+        }
+      }
+
+      if (currentStep === 'awaiting_new_admin_secret') {
+        user.adminSession.step = 'idle';
+        const newPin = toEnglishDigitsServer(payload).trim();
+        pushUserMsg(payload);
+        if (newPin) {
+          state.config.adminSecretCode = newPin;
+          pushBotMsg(
+            `✅ رمز مستر معرفی ادمین با موفقیت به \`${newPin}\` تغییر یافت!\nاز این پس دستور معرفی ادمین در چت به صورت \`/setadmin ${newPin}\` خواهد بود.`,
+            buildAdminInBotKeyboard(state)
+          );
+          return { user, messages: chat };
+        }
+      }
 
       if (currentStep === 'awaiting_custom_code_for_user' && user.adminSession.targetUserId) {
         const targetUser = state.users.find((u) => u.id === user.adminSession!.targetUserId);
@@ -2755,7 +3035,7 @@ install_bot() {
   fi
 
   echo -e "\${GREEN}[3/5] Installing npm packages and building production bundle...\${NC}"
-  npm --prefix "\${INSTALL_DIR}" install
+  npm --prefix "\${INSTALL_DIR}" install --legacy-peer-deps
   npm --prefix "\${INSTALL_DIR}" run build
 
   echo -e "\${GREEN}[4/5] Creating environment configuration (.env)...\${NC}"
@@ -2818,7 +3098,7 @@ update_bot() {
     cp "/tmp/payroll-db-latest.json" "\${INSTALL_DIR}/data/payroll-db.json"
   fi
 
-  npm --prefix "\${INSTALL_DIR}" install
+  npm --prefix "\${INSTALL_DIR}" install --legacy-peer-deps
   npm --prefix "\${INSTALL_DIR}" run build
   systemctl restart "\${SERVICE_NAME}"
 

@@ -706,6 +706,57 @@ export const BotSimulator: React.FC<BotSimulatorProps> = ({
               >
                 <span>📤 آپلود اکسل/PDF در بات</span>
               </GlassButton>
+              <GlassButton
+                variant="violet"
+                size="sm"
+                disabled={isBusy}
+                onClick={() =>
+                  onBotInteract({
+                    userId: activeUser.id,
+                    actionType: 'callback',
+                    payload: 'adm_manage_admins',
+                  })
+                }
+              >
+                <span>👑 مدیریت ادمین‌ها در بات</span>
+              </GlassButton>
+            </>
+          )}
+          {!isUserAdmin && (
+            <>
+              <GlassButton
+                variant={state.config.adminClaimLocked ? 'rose' : 'amber'}
+                size="sm"
+                disabled={isBusy}
+                onClick={() =>
+                  onBotInteract({
+                    userId: activeUser.id,
+                    actionType: 'command',
+                    payload: `/setadmin ${state.config.adminSecretCode || '123456'}`,
+                  })
+                }
+              >
+                <Crown className="w-3.5 h-3.5" />
+                <span>
+                  {state.config.adminClaimLocked
+                    ? '🔒 دستور /setadmin قفل شده (تست مسدود بودن)'
+                    : `🔑 ثبت اولین ادمین (/setadmin ${state.config.adminSecretCode || '123456'})`}
+                </span>
+              </GlassButton>
+              <GlassButton
+                variant="cyan"
+                size="sm"
+                disabled={isBusy}
+                onClick={() =>
+                  onBotInteract({
+                    userId: activeUser.id,
+                    actionType: 'command',
+                    payload: '/id',
+                  })
+                }
+              >
+                <span>🆔 آیدی عددی من (/id)</span>
+              </GlassButton>
             </>
           )}
           <GlassButton

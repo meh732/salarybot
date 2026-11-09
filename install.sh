@@ -119,7 +119,7 @@ install_panel() {
     fi
 
     echo -e "${cyan}[3/5] Installing npm packages and building production bundle...${plain}"
-    npm --prefix "${INSTALL_DIR}" install
+    npm --prefix "${INSTALL_DIR}" install --legacy-peer-deps
     npm --prefix "${INSTALL_DIR}" run build
 
     echo -e "${cyan}[4/5] Configuring Port, Bot Tokens, and Admin ID...${plain}"
@@ -128,8 +128,10 @@ install_panel() {
 
     read -rp "Enter Telegram Bot Token (@BotFather) [optional]: " tg_token
     read -rp "Enter Bale Bot Token (@botfather) [optional]: " bale_token
-    read -rp "Enter Admin Numeric Chat ID (e.g. 589402194): " admin_id
+    read -rp "Enter Admin Numeric Chat ID (e.g. 589402194) [optional]: " admin_id
     ADMIN_ID="${admin_id:-100000001}"
+    read -rp "Enter In-Bot Master Secret for /setadmin [default: 123456]: " admin_secret
+    ADMIN_SECRET="${admin_secret:-123456}"
 
     cat > "${INSTALL_DIR}/.env" <<EOF
 PORT=${PORT}
@@ -137,6 +139,7 @@ NODE_ENV=production
 TELEGRAM_BOT_TOKEN=${tg_token}
 BALE_BOT_TOKEN=${bale_token}
 ADMIN_IDS=${ADMIN_ID}
+ADMIN_SECRET=${ADMIN_SECRET}
 EOF
 
     echo -e "${cyan}[5/5] Creating systemd service and 'salarybot' CLI command...${plain}"
@@ -173,6 +176,7 @@ EOF
     echo -e "  Web Panel URL        : ${cyan}http://${SERVER_IP}:${PORT}${plain}"
     echo -e "  Telegram Webhook URL : ${yellow}http://${SERVER_IP}:${PORT}/api/webhook/telegram${plain}"
     echo -e "  Bale Webhook URL     : ${yellow}http://${SERVER_IP}:${PORT}/api/webhook/bale${plain}"
+    echo -e "  In-Bot Admin Command : Send ${green}/setadmin ${ADMIN_SECRET}${plain} inside Bot Chat!"
     echo -e "  Management Command   : Type ${green}salarybot${plain} anytime in terminal!"
     echo -e "${green}======================================================================${plain}"
 }
@@ -205,7 +209,7 @@ update_panel() {
         cp -f "/tmp/salarybot-env-backup" "${INSTALL_DIR}/.env"
     fi
 
-    npm --prefix "${INSTALL_DIR}" install
+    npm --prefix "${INSTALL_DIR}" install --legacy-peer-deps
     npm --prefix "${INSTALL_DIR}" run build
     cp -f "${INSTALL_DIR}/install.sh" "${CLI_PATH}" 2>/dev/null || true
     chmod +x "${CLI_PATH}" 2>/dev/null || true
@@ -239,10 +243,11 @@ uninstall_panel() {
 }
 
 config_tokens() {
-    echo -e "${cyan}--- Configure Bot Tokens, Port & Admin ID ---${plain}"
+    echo -e "${cyan}--- Configure Bot Tokens, Port, Admin ID & Master Secret ---${plain}"
     read -rp "Telegram Bot Token (@BotFather): " tg_tok
     read -rp "Bale Bot Token (@botfather): " bale_tok
     read -rp "Admin Numeric Chat IDs (comma-separated, e.g. 589402194): " adm_id
+    read -rp "In-Bot Master Secret for /setadmin [default 123456]: " adm_sec
     read -rp "Service Port [default 3000]: " srv_port
     PORT="${srv_port:-3000}"
 
@@ -252,9 +257,10 @@ NODE_ENV=production
 TELEGRAM_BOT_TOKEN=${tg_tok}
 BALE_BOT_TOKEN=${bale_tok}
 ADMIN_IDS=${adm_id:-100000001}
+ADMIN_SECRET=${adm_sec:-123456}
 EOF
     systemctl restart ${SERVICE_NAME}
-    echo -e "${green}[SUCCESS] Configuration saved and service restarted!${plain}"
+    echo -e "${green}[SUCCESS] Configuration saved! You can also send '/setadmin ${adm_sec:-123456}' in bot chat.${plain}"
 }
 
 set_webhook_cli() {

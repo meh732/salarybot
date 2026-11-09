@@ -84,6 +84,8 @@ export type AdminBotFlowStep =
   | 'awaiting_tg_channel_id'
   | 'awaiting_bale_channel_id'
   | 'awaiting_org_name'
+  | 'awaiting_new_admin_id'
+  | 'awaiting_new_admin_secret'
   | 'awaiting_file_upload';
 
 export interface AdminBotSession {
@@ -130,6 +132,8 @@ export interface PersonnelRecord {
 export interface BotConfig {
   organizationName: string;
   adminMessengerIds?: string[];
+  adminSecretCode?: string;
+  adminClaimLocked?: boolean;
   telegramBotToken: string;
   telegramBotUsername: string;
   telegramChannelId: string;
