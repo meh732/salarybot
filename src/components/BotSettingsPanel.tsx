@@ -49,9 +49,9 @@ export const BotSettingsPanel: React.FC<BotSettingsPanelProps> = ({
 
   // Linux Installer Generator State
   const [githubRepoUrl, setGithubRepoUrl] = useState<string>(
-    'https://github.com/your-username/telegram-bale-payroll-bot.git'
+    'https://github.com/meh732/salarybot.git'
   );
-  const [linuxInstallDir, setLinuxInstallDir] = useState<string>('/opt/payroll-bot');
+  const [linuxInstallDir, setLinuxInstallDir] = useState<string>('/usr/local/salarybot');
   const [linuxPort, setLinuxPort] = useState<string>('3000');
 
   const currentOrigin =
@@ -153,10 +153,10 @@ export const BotSettingsPanel: React.FC<BotSettingsPanelProps> = ({
     githubRepoUrl
   )}&dir=${encodeURIComponent(linuxInstallDir)}&port=${encodeURIComponent(linuxPort)}`;
 
-  const oneLineInstallCmd = `curl -fsSL "${currentOrigin}${installerDownloadUrl}" -o install.sh && sudo bash install.sh --install`;
-  const oneLineUpdateCmd = `curl -fsSL "${currentOrigin}${installerDownloadUrl}" -o install.sh && sudo bash install.sh --update`;
-  const oneLineUninstallCmd = `curl -fsSL "${currentOrigin}${installerDownloadUrl}" -o install.sh && sudo bash install.sh --uninstall`;
-  const interactiveMenuCmd = `curl -fsSL "${currentOrigin}${installerDownloadUrl}" -o install.sh && chmod +x install.sh && sudo ./install.sh`;
+  const interactiveMenuCmd = `bash <(curl -Ls https://raw.githubusercontent.com/meh732/salarybot/main/install.sh)`;
+  const oneLineInstallCmd = `bash <(curl -Ls https://raw.githubusercontent.com/meh732/salarybot/main/install.sh) install`;
+  const oneLineUpdateCmd = `bash <(curl -Ls https://raw.githubusercontent.com/meh732/salarybot/main/install.sh) update`;
+  const oneLineUninstallCmd = `bash <(curl -Ls https://raw.githubusercontent.com/meh732/salarybot/main/install.sh) uninstall`;
 
   return (
     <div className="space-y-6">
@@ -693,41 +693,83 @@ export const BotSettingsPanel: React.FC<BotSettingsPanelProps> = ({
             </div>
           </div>
 
-          {/* Simulated Terminal Preview of the Linux Panel */}
-          <div className="bg-slate-950 border border-slate-800 rounded-2xl p-5 font-mono text-xs space-y-1.5 text-slate-300">
+          {/* Simulated Terminal Preview of the Linux Panel (100% Pure English LTR for SSH Terminals) */}
+          <div
+            dir="ltr"
+            className="bg-slate-950 border border-slate-800 rounded-2xl p-5 font-mono text-xs space-y-1.5 text-slate-300 text-left"
+          >
             <div className="text-cyan-400 font-bold">
-              ======================================================================
+              +--------------------------------------------------------------------+
             </div>
             <div className="text-emerald-400 font-bold">
-              پنل مدیریت لینوکس بات فیش حقوقی تلگرام و بله (نصب / آپدیت / حذف کامل)
+              |      SalaryBot Management Panel (Sanaei 3x-ui Style CLI)           |
+            </div>
+            <div className="text-amber-300 font-bold">
+              |      GitHub: {githubRepoUrl}               |
             </div>
             <div className="text-cyan-400 font-bold">
-              ======================================================================
+              +--------------------------------------------------------------------+
             </div>
             <div>
-              مسیر نصب: <span className="text-amber-300">{linuxInstallDir}</span> | پورت سرویس:{' '}
-              <span className="text-amber-300">{linuxPort}</span> | مخزن:{' '}
-              <span className="text-amber-300">{githubRepoUrl}</span>
+              Service Status : <span className="text-emerald-400">Running</span> | Auto-Start:{' '}
+              <span className="text-emerald-400">Enabled</span>
             </div>
-            <div className="pt-2 space-y-1">
+            <div>
+              Install Path   : <span className="text-amber-300">{linuxInstallDir}</span> | Port:{' '}
+              <span className="text-amber-300">{linuxPort}</span>
+            </div>
+            <div className="text-cyan-400">
+              ----------------------------------------------------------------------
+            </div>
+            <div className="space-y-1">
               <div>
-                <span className="text-emerald-400">1)</span> 🚀 نصب کامل بات از گیت‌هاب و فعال‌سازی سرویس دائمی Systemd (Install)
+                <span className="text-emerald-400">0.</span> Exit Panel
+              </div>
+              <div className="text-cyan-400">
+                ----------------------------------------------------------------------
               </div>
               <div>
-                <span className="text-cyan-400">2)</span> 🔄 آپدیت خودکار از گیت‌هاب با بکاپ و حفظ دیتابیس فیش‌ها (Update)
+                <span className="text-emerald-400">1.</span> Install SalaryBot from GitHub (Full Setup)
               </div>
               <div>
-                <span className="text-rose-400">3)</span> 🗑️ حذف کامل بات و پاکسازی سرویس از لینوکس (Uninstall)
+                <span className="text-emerald-400">2.</span> Update SalaryBot from GitHub (Preserves Database)
               </div>
               <div>
-                <span className="text-amber-400">4)</span> 🔑 ویرایش توکن بات تلگرام/بله و آیدی عددی ادمین‌ها
+                <span className="text-emerald-400">3.</span> Uninstall SalaryBot Completely
+              </div>
+              <div className="text-cyan-400">
+                ----------------------------------------------------------------------
               </div>
               <div>
-                <span className="text-cyan-400">5)</span> 📊 مشاهده وضعیت سرویس و لاگ زنده ربات (Status &amp; Logs)
+                <span className="text-emerald-400">4.</span> Configure Bot Tokens, Port &amp; Admin Chat ID
               </div>
               <div>
-                <span className="text-emerald-400">6)</span> ♻️ ری‌استارت سرویس ربات (Restart)
+                <span className="text-emerald-400">5.</span> Set Webhook on Telegram / Bale API
               </div>
+              <div>
+                <span className="text-emerald-400">6.</span> Backup Payroll Database (payroll-db.json)
+              </div>
+              <div className="text-cyan-400">
+                ----------------------------------------------------------------------
+              </div>
+              <div>
+                <span className="text-emerald-400">7.</span> Start SalaryBot Service
+              </div>
+              <div>
+                <span className="text-emerald-400">8.</span> Stop SalaryBot Service
+              </div>
+              <div>
+                <span className="text-emerald-400">9.</span> Restart SalaryBot Service
+              </div>
+              <div>
+                <span className="text-emerald-400">10.</span> View Live Service Logs (journalctl)
+              </div>
+            </div>
+            <div className="text-cyan-400 font-bold">
+              +--------------------------------------------------------------------+
+            </div>
+            <div className="text-slate-400 pt-1">
+              Please enter your selection [0-10]: _
             </div>
           </div>
         </div>

@@ -2673,27 +2673,28 @@ export default {
     res.send(workerScript);
   });
 
-  // API: Export Linux Bash Auto-Installer, Updater & Uninstaller Panel (`install.sh`) from GitHub
+  // API: Export Linux Bash Auto-Installer, Updater & Uninstaller Panel (`install.sh`) from GitHub (100% Pure English for SSH Terminals)
   app.get('/api/bot/export-linux-installer', (req, res) => {
     const repoUrl =
-      (req.query.repo as string) || 'https://github.com/your-org/telegram-bale-payroll-bot.git';
-    const installDir = (req.query.dir as string) || '/opt/payroll-bot';
+      (req.query.repo as string) || 'https://github.com/meh732/salarybot.git';
+    const installDir = (req.query.dir as string) || '/usr/local/salarybot';
     const servicePort = (req.query.port as string) || '3000';
-    const domainName = (req.query.domain as string) || '';
 
     const bashScript = `#!/usr/bin/env bash
 # ==============================================================================
-# سامانه جامع بات فیش حقوقی تلگرام و بله (${state.config.organizationName})
-# پنل مدیریت، نصب خودکار از گیت‌هاب، آپدیت هوشمند و حذف کامل (Ubuntu / Debian / CentOS)
+#  SalaryBot Management Script (Sanaei 3x-ui Style CLI Panel - Pure English)
+#  GitHub Repository: ${repoUrl}
+#  One-Line Command : bash <(curl -Ls https://raw.githubusercontent.com/meh732/salarybot/main/install.sh)
+#  Management CLI   : salarybot
 # ==============================================================================
 
 set -e
 
 REPO_URL="${repoUrl}"
 INSTALL_DIR="${installDir}"
-SERVICE_NAME="payroll-bot"
+SERVICE_NAME="salarybot"
+CLI_PATH="/usr/bin/salarybot"
 PORT="${servicePort}"
-DOMAIN="${domainName}"
 TG_TOKEN="${state.config.telegramBotToken || ''}"
 BALE_TOKEN="${state.config.baleBotToken || ''}"
 ADMIN_IDS="${(state.config.adminMessengerIds || ['100000001']).join(',')}"
@@ -2704,47 +2705,60 @@ YELLOW="\\033[1;33m"
 RED="\\033[0;31m"
 NC="\\033[0m"
 
+check_status() {
+  if [[ ! -f "/etc/systemd/system/\${SERVICE_NAME}.service" ]]; then
+    echo -e "  Service Status : \${RED}Not Installed\${NC}"
+    return
+  fi
+  if systemctl is-active --quiet "\${SERVICE_NAME}"; then
+    echo -e "  Service Status : \${GREEN}Running\${NC}"
+  else
+    echo -e "  Service Status : \${YELLOW}Stopped\${NC}"
+  fi
+}
+
 print_banner() {
   clear
-  echo -e "\${CYAN}======================================================================\${NC}"
-  echo -e "\${GREEN}   پنل مدیریت لینوکس بات فیش حقوقی تلگرام و بله (نصب / آپدیت / حذف)   \${NC}"
-  echo -e "\${CYAN}======================================================================\${NC}"
-  echo -e "  مسیر نصب: \${YELLOW}\${INSTALL_DIR}\${NC} | پورت سرویس: \${YELLOW}\${PORT}\${NC}"
-  echo -e "  مخزن گیت‌هاب: \${YELLOW}\${REPO_URL}\${NC}"
+  echo -e "\${CYAN}+--------------------------------------------------------------------+\${NC}"
+  echo -e "\${CYAN}|\${NC}      \${GREEN}SalaryBot Management Panel (Sanaei 3x-ui Style CLI)\${NC}           \${CYAN}|\${NC}"
+  echo -e "\${CYAN}|\${NC}      \${YELLOW}GitHub: \${REPO_URL}\${NC}               \${CYAN}|\${NC}"
+  echo -e "\${CYAN}+--------------------------------------------------------------------+\${NC}"
+  check_status
+  echo -e "  Install Path   : \${YELLOW}\${INSTALL_DIR}\${NC} | Port: \${YELLOW}\${PORT}\${NC}"
   echo -e "\${CYAN}----------------------------------------------------------------------\${NC}"
 }
 
 install_bot() {
-  echo -e "\${GREEN}[1/5] بررسی و نصب پیش‌نیازهای سیستم (Git, Curl, Node.js 20)...\${NC}"
+  echo -e "\${GREEN}[1/5] Installing system dependencies (Git, Curl, Node.js 20)...\${NC}"
   if command -v apt-get &>/dev/null; then
     apt-get update -y
-    apt-get install -y curl git build-essential ca-certificates
+    apt-get install -y curl wget git build-essential ca-certificates
     if ! command -v node &>/dev/null; then
       curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
       apt-get install -y nodejs
     fi
   elif command -v yum &>/dev/null; then
-    yum install -y curl git gcc-c++ make
+    yum install -y curl wget git gcc-c++ make
     if ! command -v node &>/dev/null; then
       curl -fsSL https://rpm.nodesource.com/setup_20.x | bash -
       yum install -y nodejs
     fi
   fi
 
-  echo -e "\${GREEN}[2/5] دانلود سورس پروژه از گیت‌هاب (\${REPO_URL})...\${NC}"
+  echo -e "\${GREEN}[2/5] Cloning repository from GitHub (\${REPO_URL})...\${NC}"
   if [ -d "\${INSTALL_DIR}/.git" ]; then
-    echo -e "\${YELLOW}پوشه قبلی شناسایی شد. در حال دریافت آخرین تغییرات از گیت‌هاب...\${NC}"
-    git -C "\${INSTALL_DIR}" pull origin main || git -C "\${INSTALL_DIR}" pull
+    git -C "\${INSTALL_DIR}" fetch --all
+    git -C "\${INSTALL_DIR}" reset --hard origin/main || git -C "\${INSTALL_DIR}" pull
   else
     mkdir -p "\$(dirname "\${INSTALL_DIR}")"
     git clone "\${REPO_URL}" "\${INSTALL_DIR}"
   fi
 
-  echo -e "\${GREEN}[3/5] نصب پکیج‌ها و کامپایل پروژه...\${NC}"
+  echo -e "\${GREEN}[3/5] Installing npm packages and building production bundle...\${NC}"
   npm --prefix "\${INSTALL_DIR}" install
   npm --prefix "\${INSTALL_DIR}" run build
 
-  echo -e "\${GREEN}[4/5] ساخت فایل تنظیمات محیطی (.env)...\${NC}"
+  echo -e "\${GREEN}[4/5] Creating environment configuration (.env)...\${NC}"
   cat > "\${INSTALL_DIR}/.env" <<EOF
 PORT=\${PORT}
 NODE_ENV=production
@@ -2753,10 +2767,10 @@ BALE_BOT_TOKEN=\${BALE_TOKEN}
 ADMIN_IDS=\${ADMIN_IDS}
 EOF
 
-  echo -e "\${GREEN}[5/5] ساخت و فعال‌سازی سرویس دائمی Systemd (\${SERVICE_NAME}.service)...\${NC}"
+  echo -e "\${GREEN}[5/5] Creating systemd service and 'salarybot' CLI command...\${NC}"
   cat > "/etc/systemd/system/\${SERVICE_NAME}.service" <<EOF
 [Unit]
-Description=Telegram & Bale Payroll Bot Service
+Description=SalaryBot - Telegram & Bale Payroll Bot Service
 After=network.target
 
 [Service]
@@ -2772,26 +2786,28 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
+  cp -f "\${INSTALL_DIR}/install.sh" "\${CLI_PATH}" 2>/dev/null || true
+  chmod +x "\${CLI_PATH}" 2>/dev/null || true
+
   systemctl daemon-reload
   systemctl enable "\${SERVICE_NAME}"
   systemctl restart "\${SERVICE_NAME}"
 
-  echo -e "\${GREEN}✅ نصب و راه‌اندازی بات فیش حقوقی با موفقیت کامل انجام شد!\${NC}"
-  echo -e "\${CYAN}🌐 آدرس پنل و وب‌هوک: http://\$(hostname -I | awk '{print \$1}'):\${PORT}\${NC}"
+  echo -e "\${GREEN}[SUCCESS] SalaryBot installed and started successfully!\${NC}"
+  echo -e "\${CYAN}Web Panel & Webhook URL: http://\$(hostname -I | awk '{print \$1}'):\${PORT}\${NC}"
+  echo -e "\${GREEN}Management CLI Command : salarybot\${NC}"
 }
 
 update_bot() {
-  echo -e "\${CYAN}🔄 شروع فرآیند آپدیت ایمن از گیت‌هاب (با حفظ کامل دیتابیس فیش‌ها و کاربران)...\${NC}"
+  echo -e "\${CYAN}[INFO] Updating SalaryBot from GitHub (preserving database)...\${NC}"
   if [ ! -d "\${INSTALL_DIR}" ]; then
-    echo -e "\${RED}❌ پوشه نصب (\${INSTALL_DIR}) یافت نشد! ابتدا گزینه ۱ (نصب) را اجرا کنید.\${NC}"
+    echo -e "\${RED}[ERROR] Install directory (\${INSTALL_DIR}) not found! Run option 1 first.\${NC}"
     return 1
   fi
 
-  # Backup database before git pull
   if [ -f "\${INSTALL_DIR}/data/payroll-db.json" ]; then
-    cp "\${INSTALL_DIR}/data/payroll-db.json" "/tmp/payroll-db-backup-\$(date +%s).json"
     cp "\${INSTALL_DIR}/data/payroll-db.json" "/tmp/payroll-db-latest.json"
-    echo -e "\${GREEN}📦 نسخه پشتیبان دیتابیس فیش‌ها و کاربران با موفقیت ذخیره شد.\${NC}"
+    echo -e "\${GREEN}[OK] Database backup saved.\${NC}"
   fi
 
   git -C "\${INSTALL_DIR}" fetch --all
@@ -2806,18 +2822,17 @@ update_bot() {
   npm --prefix "\${INSTALL_DIR}" run build
   systemctl restart "\${SERVICE_NAME}"
 
-  echo -e "\${GREEN}✅ آپدیت ربات از گیت‌هاب بدون از دست رفتن اطلاعات با موفقیت انجام شد!\${NC}"
+  echo -e "\${GREEN}[SUCCESS] SalaryBot updated and restarted without losing any data!\${NC}"
 }
 
 uninstall_bot() {
-  echo -e "\${RED}⚠️ آیا از حذف کامل (Uninstall) ربات و سرویس لینوکسی اطمینان دارید؟ (y/n)\${NC}"
+  echo -e "\${RED}[WARNING] Are you sure you want to completely uninstall SalaryBot? (y/n)\${NC}"
   read -r confirm
   if [[ "\${confirm}" != "y" && "\${confirm}" != "Y" ]]; then
-    echo -e "\${YELLOW}عملیات حذف لغو شد.\${NC}"
+    echo -e "\${YELLOW}[INFO] Uninstall cancelled.\${NC}"
     return 0
   fi
 
-  echo -e "\${YELLOW}در حال توقف و حذف سرویس \${SERVICE_NAME}...\${NC}"
   systemctl stop "\${SERVICE_NAME}" 2>/dev/null || true
   systemctl disable "\${SERVICE_NAME}" 2>/dev/null || true
   rm -f "/etc/systemd/system/\${SERVICE_NAME}.service"
@@ -2825,18 +2840,19 @@ uninstall_bot() {
 
   if [ -f "\${INSTALL_DIR}/data/payroll-db.json" ]; then
     cp "\${INSTALL_DIR}/data/payroll-db.json" "/root/payroll-db-final-backup.json"
-    echo -e "\${GREEN}📦 یک نسخه پشتیبان نهایی از دیتابیس شما در /root/payroll-db-final-backup.json ذخیره شد.\${NC}"
+    echo -e "\${GREEN}[OK] Final database backup saved to /root/payroll-db-final-backup.json\${NC}"
   fi
 
   rm -rf "\${INSTALL_DIR}"
-  echo -e "\${GREEN}🗑️ ربات و تمامی فایل‌های سرویس به طور کامل از سرور حذف (Uninstall) شدند.\${NC}"
+  rm -f "\${CLI_PATH}"
+  echo -e "\${GREEN}[SUCCESS] SalaryBot service and files have been completely removed.\${NC}"
 }
 
 configure_tokens() {
-  echo -e "\${CYAN}🔑 تنظیم توکن بات تلگرام، بله و آیدی عددی ادمین:\${NC}"
-  read -rp "توکن بات تلگرام (@BotFather): " new_tg
-  read -rp "توکن بازوی بله (@botfather): " new_bale
-  read -rp "آیدی عددی ادمین‌ها (جدا شده با کاما، مثال 589402194): " new_admins
+  echo -e "\${CYAN}--- Configure Bot Tokens & Admin ID ---\${NC}"
+  read -rp "Telegram Bot Token (@BotFather): " new_tg
+  read -rp "Bale Bot Token (@botfather): " new_bale
+  read -rp "Admin Numeric Chat IDs (comma-separated, e.g. 589402194): " new_admins
 
   [ -n "\${new_tg}" ] && TG_TOKEN="\${new_tg}"
   [ -n "\${new_bale}" ] && BALE_TOKEN="\${new_bale}"
@@ -2851,11 +2867,10 @@ BALE_BOT_TOKEN=\${BALE_TOKEN}
 ADMIN_IDS=\${ADMIN_IDS}
 EOF
     systemctl restart "\${SERVICE_NAME}" 2>/dev/null || true
-    echo -e "\${GREEN}✅ توکن‌ها و آیدی ادمین بروزرسانی شد و سرویس ری‌استارت گردید!\${NC}"
+    echo -e "\${GREEN}[SUCCESS] Tokens and Admin IDs updated and service restarted!\${NC}"
   fi
 }
 
-# Handle direct CLI flags (--install, --update, --uninstall) or show interactive menu
 case "\${1:-}" in
   --install|install)
     install_bot
@@ -2873,24 +2888,26 @@ esac
 
 while true; do
   print_banner
-  echo -e "  \${GREEN}1)\${NC} 🚀 نصب کامل بات از گیت‌هاب و فعال‌سازی سرویس دائمی (Install)"
-  echo -e "  \${CYAN}2)\${NC} 🔄 آپدیت خودکار از گیت‌هاب با حفظ دیتابیس (Update)"
-  echo -e "  \${RED}3)\${NC} 🗑️  حذف کامل بات و پاکسازی سرویس از لینوکس (Uninstall)"
-  echo -e "  \${YELLOW}4)\${NC} 🔑 ویرایش توکن بات تلگرام/بله و آیدی عددی ادمین"
-  echo -e "  \${CYAN}5)\${NC} 📊 مشاهده وضعیت سرویس و لاگ زنده ربات (Status & Logs)"
-  echo -e "  \${GREEN}6)\${NC} ♻️  ری‌استارت سرویس ربات (Restart)"
-  echo -e "  0) خروج از پنل"
+  echo -e "  \${GREEN}0.\${NC} Exit Panel"
   echo -e "\${CYAN}----------------------------------------------------------------------\${NC}"
-  read -rp "لطفاً شماره گزینه مورد نظر را وارد کنید: " choice
+  echo -e "  \${GREEN}1.\${NC} Install SalaryBot from GitHub (Full Setup)"
+  echo -e "  \${GREEN}2.\${NC} Update SalaryBot from GitHub (Preserves Database)"
+  echo -e "  \${GREEN}3.\${NC} Uninstall SalaryBot Completely"
+  echo -e "\${CYAN}----------------------------------------------------------------------\${NC}"
+  echo -e "  \${GREEN}4.\${NC} Configure Bot Tokens & Admin Chat ID"
+  echo -e "  \${GREEN}5.\${NC} Check Service Status & Live Logs"
+  echo -e "  \${GREEN}6.\${NC} Restart SalaryBot Service"
+  echo -e "\${CYAN}+--------------------------------------------------------------------+\${NC}"
+  read -rp "Please enter your selection [0-6]: " choice
   case "\${choice}" in
-    1) install_bot ; read -rp "برای ادامه Enter بزنید..." ;;
-    2) update_bot ; read -rp "برای ادامه Enter بزنید..." ;;
-    3) uninstall_bot ; read -rp "برای ادامه Enter بزنید..." ;;
-    4) configure_tokens ; read -rp "برای ادامه Enter بزنید..." ;;
-    5) systemctl status "\${SERVICE_NAME}" --no-pager || true ; read -rp "برای ادامه Enter بزنید..." ;;
-    6) systemctl restart "\${SERVICE_NAME}" && echo -e "\${GREEN}سرویس ری‌استارت شد.\${NC}" ; read -rp "برای ادامه Enter بزنید..." ;;
+    1) install_bot ; read -rp "Press Enter to continue..." ;;
+    2) update_bot ; read -rp "Press Enter to continue..." ;;
+    3) uninstall_bot ; read -rp "Press Enter to continue..." ;;
+    4) configure_tokens ; read -rp "Press Enter to continue..." ;;
+    5) systemctl status "\${SERVICE_NAME}" --no-pager || true ; read -rp "Press Enter to continue..." ;;
+    6) systemctl restart "\${SERVICE_NAME}" && echo -e "\${GREEN}[OK] Service restarted.\${NC}" ; read -rp "Press Enter to continue..." ;;
     0) exit 0 ;;
-    *) echo -e "\${RED}گزینه نامعتبر است!\${NC}" ; sleep 1 ;;
+    *) echo -e "\${RED}[ERROR] Invalid selection!\${NC}" ; sleep 1 ;;
   esac
 done
 `;
