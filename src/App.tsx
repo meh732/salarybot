@@ -230,6 +230,57 @@ export default function App() {
     }
   };
 
+  const handleWipeDatabase = async () => {
+    try {
+      const res = await fetch('/api/database/wipe', { method: 'POST' });
+      const data = await res.json();
+      if (data.ok && data.state) {
+        setState(data.state);
+        alert('✅ دیتابیس با موفقیت کاملاً خام و پاکسازی گردید.');
+      } else {
+        alert(data.error || 'خطا در پاکسازی دیتابیس');
+      }
+    } catch {
+      alert('خطا در ارتباط با سرور هنگام پاکسازی دیتابیس');
+    }
+  };
+
+  const handleSendBackupNow = async () => {
+    try {
+      const res = await fetch('/api/database/send-backup', { method: 'POST' });
+      const data = await res.json();
+      if (data.ok && data.state) {
+        setState(data.state);
+        alert(data.message || '✅ فایل بکاپ به چت تلگرام/بله ادمین ارسال شد.');
+      } else {
+        alert(data.error || 'خطا در ارسال بکاپ به چت ادمین');
+      }
+    } catch {
+      alert('خطا در ارتباط با سرور هنگام ارسال بکاپ');
+    }
+  };
+
+  const handleRestoreDatabase = async (file: File) => {
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const res = await fetch('/api/database/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(parsed),
+      });
+      const data = await res.json();
+      if (data.ok && data.state) {
+        setState(data.state);
+        alert('✅ دیتابیس با موفقیت از فایل بکاپ ۱۰۰٪ بازگردانی گردید!');
+      } else {
+        alert(data.error || 'فایل بکاپ نامعتبر است.');
+      }
+    } catch {
+      alert('فرمت فایل بکاپ ارسالی معتبر نیست.');
+    }
+  };
+
   if (loading && !state) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
@@ -527,6 +578,9 @@ export default function App() {
           <BotSettingsPanel
             config={state.config}
             onSaveConfig={handleSaveConfig}
+            onWipeDatabase={handleWipeDatabase}
+            onSendBackupNow={handleSendBackupNow}
+            onRestoreDatabase={handleRestoreDatabase}
           />
         )}
       </main>

@@ -1,23 +1,29 @@
 import React, { useState } from 'react';
 import {
+  AlertTriangle,
   Check,
   CheckCircle2,
   Cloud,
   Code2,
   Copy,
   Crown,
+  Database,
   Download,
   ExternalLink,
+  FileText,
   KeyRound,
   Plus,
   Radio,
   RefreshCw,
+  RotateCcw,
   Save,
   Server,
   Settings,
   Shield,
   Terminal,
   Trash2,
+  Upload,
+  UploadCloud,
   UserCheck,
   Zap,
 } from 'lucide-react';
@@ -28,13 +34,19 @@ import { GlassButton } from './GlassButton';
 interface BotSettingsPanelProps {
   config: BotConfig;
   onSaveConfig: (newConfig: Partial<BotConfig>) => Promise<void>;
+  onWipeDatabase?: () => Promise<void>;
+  onSendBackupNow?: () => Promise<void>;
+  onRestoreDatabase?: (file: File) => Promise<void>;
 }
 
 export const BotSettingsPanel: React.FC<BotSettingsPanelProps> = ({
   config,
   onSaveConfig,
+  onWipeDatabase,
+  onSendBackupNow,
+  onRestoreDatabase,
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'webhook_admin' | 'linux_panel'>('webhook_admin');
+  const [activeSubTab, setActiveSubTab] = useState<'webhook_admin' | 'linux_panel' | 'db_backup'>('webhook_admin');
   const [formState, setFormState] = useState<BotConfig>(config);
   const [adminList, setAdminList] = useState<string[]>(
     config.adminMessengerIds && config.adminMessengerIds.length > 0
@@ -84,7 +96,7 @@ export const BotSettingsPanel: React.FC<BotSettingsPanelProps> = ({
   };
 
   const handleRemoveAdminId = (idToRemove: string) => {
-    setAdminList(adminList.filter((item) => item !== idToRemove));
+    setAdminList(adminList.filter((item: string) => item !== idToRemove));
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -186,7 +198,20 @@ export const BotSettingsPanel: React.FC<BotSettingsPanelProps> = ({
             }`}
           >
             <Terminal className="w-4 h-4" />
-            <span>۲. پنل نصاب لینوکس از گیت‌هاب (نصب / آپدیت / حذف کامل)</span>
+            <span>۲. پنل نصاب لینوکس از گیت‌هاب</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('db_backup')}
+            className={`px-4 py-2.5 rounded-lg text-xs sm:text-sm font-bold transition-all cursor-pointer flex items-center gap-2 ${
+              activeSubTab === 'db_backup'
+                ? 'bg-amber-500/25 text-amber-200 border border-amber-500/40 shadow-sm'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Database className="w-4 h-4" />
+            <span>۳. خام‌سازی دیتابیس، بکاپ اتومات تلگرام و بازگردانی</span>
           </button>
         </div>
 
@@ -307,7 +332,7 @@ export const BotSettingsPanel: React.FC<BotSettingsPanelProps> = ({
                 اکانت‌های دارای دسترسی ادمین در داخل بات ({toPersianDigits(adminList.length)} ادمین):
               </div>
               <div className="flex items-center gap-2 flex-wrap">
-                {adminList.map((adm) => (
+                {adminList.map((adm: string) => (
                   <div
                     key={adm}
                     className="inline-flex items-center gap-2 bg-amber-500/15 border border-amber-400/40 rounded-xl px-3 py-1.5 text-xs text-amber-200 font-mono"
@@ -542,7 +567,7 @@ export const BotSettingsPanel: React.FC<BotSettingsPanelProps> = ({
             </GlassButton>
           </div>
         </form>
-      ) : (
+      ) : activeSubTab === 'linux_panel' ? (
         /* TAB 2: LINUX AUTO-INSTALLER, UPDATER & UNINSTALLER PANEL (`پنل نصب، آپدیت و حذف خودکار لینوکس از گیت‌هاب`) */
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 space-y-6">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-800 pb-4">
@@ -770,6 +795,195 @@ export const BotSettingsPanel: React.FC<BotSettingsPanelProps> = ({
             </div>
             <div className="text-slate-400 pt-1">
               Please enter your selection [0-10]: _
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* TAB 3: DATABASE MANAGEMENT, AUTOMATIC TELEGRAM BACKUP & RESTORE (`خام‌سازی، بکاپ اتومات تلگرام و بازگردانی`) */
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 space-y-6">
+          <div className="border-b border-slate-800 pb-4">
+            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+              <Database className="w-5 h-5 text-amber-400" />
+              <span>مدیریت کامل دیتابیس، خام‌سازی، بکاپ‌گیری اتوماتیک تلگرام و بازگردانی</span>
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-400 mt-1">
+              تنظیم ارسال خودکار فایل بکاپ کامل و کم‌حجم به چت تلگرام/بله ادمین، بازگردانی ۱۰۰٪ دیتابیس و امکان خام‌سازی صفر تا صد
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Box 1: Automatic Scheduled Backup to Telegram Admin Chat */}
+            <div className="bg-slate-950/80 border border-cyan-500/35 rounded-2xl p-5 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h3 className="text-sm font-bold text-cyan-300 flex items-center gap-2">
+                  <UploadCloud className="w-4 h-4 text-cyan-400" />
+                  <span>۱. ارسال خودکار و دوره‌ای بکاپ به چت تلگرام ادمین</span>
+                </h3>
+                <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                  فایل ۱۰۰٪ کامل و فشرده
+                </span>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-xl p-3.5">
+                  <div>
+                    <div className="text-xs font-bold text-white mb-0.5">
+                      ارسال خودکار بکاپ به تلگرام/بله ادمین:
+                    </div>
+                    <div className="text-[11px] text-slate-400">
+                      هر چند ساعت، فایل بکاپ <code className="text-cyan-300">payroll-db.json</code> مستقیماً به چت ادمین پیام‌رسانی می‌شود.
+                    </div>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={formState.autoBackupEnabled !== false}
+                      onChange={(e) => {
+                        const updated = { ...formState, autoBackupEnabled: e.target.checked };
+                        setFormState(updated);
+                        onSaveConfig({ autoBackupEnabled: e.target.checked });
+                      }}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-500"></div>
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                      بازه زمانی ارسال خودکار (ساعت):
+                    </label>
+                    <select
+                      value={formState.autoBackupIntervalHours || 6}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        const updated = { ...formState, autoBackupIntervalHours: val };
+                        setFormState(updated);
+                        onSaveConfig({ autoBackupIntervalHours: val });
+                      }}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-400"
+                    >
+                      <option value={1}>هر ۱ ساعت</option>
+                      <option value={2}>هر ۲ ساعت</option>
+                      <option value={3}>هر ۳ ساعت</option>
+                      <option value={6}>هر ۶ ساعت (پیش‌فرض)</option>
+                      <option value={12}>هر ۱۲ ساعت</option>
+                      <option value={24}>هر ۲۴ ساعت (روزانه)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                      آخرین زمان ارسال بکاپ:
+                    </label>
+                    <div className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-emerald-300 font-mono tabular-nums truncate">
+                      {config.lastBackupAt || 'هنوز ارسال نشده'}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-2 flex items-center gap-2 flex-wrap">
+                  <GlassButton
+                    type="button"
+                    variant="cyan"
+                    size="md"
+                    onClick={onSendBackupNow}
+                  >
+                    <UploadCloud className="w-4 h-4" />
+                    <span>ارسال فوری بکاپ کامل به چت تلگرام/بله (همین الان)</span>
+                  </GlassButton>
+
+                  <a
+                    href="/api/database/export"
+                    download="payroll-db-backup.json"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold transition-colors"
+                  >
+                    <Download className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>دانلود مستقیم فایل JSON بکاپ</span>
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            {/* Box 2: Restore Database from Backup File */}
+            <div className="bg-slate-950/80 border border-emerald-500/35 rounded-2xl p-5 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h3 className="text-sm font-bold text-emerald-300 flex items-center gap-2">
+                  <RotateCcw className="w-4 h-4 text-emerald-400" />
+                  <span>۲. بازگردانی دیتابیس از فایل بکاپ (Restore)</span>
+                </h3>
+                <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  بازگردانی ۱۰۰٪ اطلاعات
+                </span>
+              </div>
+
+              <div className="space-y-3 text-xs text-slate-300 leading-relaxed">
+                <p>
+                  فایل بکاپ <code className="text-emerald-300">payroll-db-backup.json</code> که قبلاً دانلود کرده‌اید یا از چت تلگرام/بله دریافت کرده‌اید را انتخاب فرمایید تا تمام اطلاعات پرسنل، فیش‌ها و سوابق پیام‌ها ۱۰۰٪ بازگردانی شود:
+                </p>
+
+                <div className="bg-slate-900 border-2 border-dashed border-emerald-500/40 hover:border-emerald-400 rounded-2xl p-5 text-center transition-colors">
+                  <input
+                    type="file"
+                    accept=".json"
+                    id="restoreFileInput"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file && onRestoreDatabase) {
+                        onRestoreDatabase(file);
+                        e.target.value = '';
+                      }
+                    }}
+                    className="hidden"
+                  />
+                  <label htmlFor="restoreFileInput" className="cursor-pointer space-y-2 block">
+                    <Upload className="w-8 h-8 text-emerald-400 mx-auto" />
+                    <div className="text-xs font-bold text-white">
+                      کلیک کنید تا فایل بکاپ JSON را انتخاب و بازگردانی کنید
+                    </div>
+                    <div className="text-[11px] text-slate-400">
+                      پشتیبانی از فایل‌های بکاپ دریافت شده در چت تلگرام یا بله
+                    </div>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Box 3: Clean Reset / Wipe Database Option (`خام کردن کامل دیتابیس`) */}
+          <div className="bg-rose-950/40 border-2 border-rose-500/40 rounded-2xl p-5 space-y-3">
+            <div className="flex items-center justify-between border-b border-rose-500/30 pb-3">
+              <h3 className="text-sm font-bold text-rose-200 flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-rose-400" />
+                <span>۳. خام‌سازی و پاکسازی کامل دیتابیس (Reset / Wipe Database)</span>
+              </h3>
+            </div>
+
+            <div className="text-xs text-slate-300 leading-relaxed space-y-2">
+              <p>
+                با کلیک روی دکمه زیر، تمامی پرسنل، درخواست‌های کارت ملی، فیش‌های حقوقی و پیام‌های ثبت‌شده در ربات <strong>به طور کامل پاکسازی و صفر می‌شود</strong> تا سامانه به حالت اولیه خام بازگردد. (توکن ربات و لیست ادمین‌ها محفوظ می‌ماند).
+              </p>
+            </div>
+
+            <div className="pt-2 flex items-center justify-end">
+              <GlassButton
+                type="button"
+                variant="rose"
+                size="md"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      '⚠️ آیا مطمئن هستید که می‌خواهید دیتابیس را کاملاً خام و پاکسازی کنید؟ تمام پرسنل و فیش‌های موجود حذف خواهند شد!'
+                    )
+                  ) {
+                    if (onWipeDatabase) onWipeDatabase();
+                  }
+                }}
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>خام‌سازی و پاکسازی کامل دیتابیس (Reset DB)</span>
+              </GlassButton>
             </div>
           </div>
         </div>

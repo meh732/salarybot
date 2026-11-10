@@ -147,6 +147,9 @@ export interface BotConfig {
   verificationApprovedMessage: string;
   supportContact: string;
   livePollingEnabled: boolean;
+  autoBackupEnabled?: boolean;
+  autoBackupIntervalHours?: number;
+  lastBackupAt?: string;
 }
 
 export interface BroadcastLog {
