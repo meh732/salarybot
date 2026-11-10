@@ -34,7 +34,7 @@ import { GlassButton } from './GlassButton';
 interface BotSettingsPanelProps {
   config: BotConfig;
   onSaveConfig: (newConfig: Partial<BotConfig>) => Promise<void>;
-  onWipeDatabase?: () => Promise<void>;
+  onWipeDatabase?: (factoryReset?: boolean) => Promise<void>;
   onSendBackupNow?: () => Promise<void>;
   onRestoreDatabase?: (file: File) => Promise<void>;
 }
@@ -952,7 +952,7 @@ export const BotSettingsPanel: React.FC<BotSettingsPanelProps> = ({
           </div>
 
           {/* Box 3: Clean Reset / Wipe Database Option (`خام کردن کامل دیتابیس`) */}
-          <div className="bg-rose-950/40 border-2 border-rose-500/40 rounded-2xl p-5 space-y-3">
+          <div className="bg-rose-950/40 border-2 border-rose-500/40 rounded-2xl p-5 space-y-4">
             <div className="flex items-center justify-between border-b border-rose-500/30 pb-3">
               <h3 className="text-sm font-bold text-rose-200 flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5 text-rose-400" />
@@ -960,30 +960,70 @@ export const BotSettingsPanel: React.FC<BotSettingsPanelProps> = ({
               </h3>
             </div>
 
-            <div className="text-xs text-slate-300 leading-relaxed space-y-2">
-              <p>
-                با کلیک روی دکمه زیر، تمامی پرسنل، درخواست‌های کارت ملی، فیش‌های حقوقی و پیام‌های ثبت‌شده در ربات <strong>به طور کامل پاکسازی و صفر می‌شود</strong> تا سامانه به حالت اولیه خام بازگردد. (توکن ربات و لیست ادمین‌ها محفوظ می‌ماند).
-              </p>
-            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Option A: Factory Reset 100% Pure Blank */}
+              <div className="bg-slate-950/90 border border-rose-500/60 rounded-xl p-4 flex flex-col justify-between space-y-3">
+                <div className="space-y-1.5">
+                  <div className="text-xs font-bold text-rose-300 flex items-center gap-1.5">
+                    <Trash2 className="w-4 h-4 text-rose-400" />
+                    <span>خام‌سازی ۱۰۰٪ و ریست فکتوری مطلق (Factory Reset)</span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    حذف مطلق همه چیز: تمام پرسنل، کارت‌های ملی، فیش‌های حقوقی، پیام‌ها، و همچنین <strong>پاکسازی کامل توکن‌های تلگرام و بله و لیست ادمین‌ها</strong>. پس از این عملیات، دیتابیس و تنظیمات همانند روز اول نصب خام خام خواهند بود.
+                  </p>
+                </div>
+                <div className="pt-2 flex justify-end">
+                  <GlassButton
+                    type="button"
+                    variant="rose"
+                    size="sm"
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          '🚨 اخطار بسیار مهم: آیا ۱۰۰٪ مطمئنید که می‌خواهید ریست فکتوری کامل انجام دهید؟ تمام پرسنل، فیش‌ها، پیام‌ها، توکن‌های ربات و لیست ادمین‌ها به طور کامل حذف خواهند شد!'
+                        )
+                      ) {
+                        if (onWipeDatabase) onWipeDatabase(true);
+                      }
+                    }}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    <span>ریست فکتوری ۱۰۰٪ خام خام</span>
+                  </GlassButton>
+                </div>
+              </div>
 
-            <div className="pt-2 flex items-center justify-end">
-              <GlassButton
-                type="button"
-                variant="rose"
-                size="md"
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      '⚠️ آیا مطمئن هستید که می‌خواهید دیتابیس را کاملاً خام و پاکسازی کنید؟ تمام پرسنل و فیش‌های موجود حذف خواهند شد!'
-                    )
-                  ) {
-                    if (onWipeDatabase) onWipeDatabase();
-                  }
-                }}
-              >
-                <Trash2 className="w-4 h-4" />
-                <span>خام‌سازی و پاکسازی کامل دیتابیس (Reset DB)</span>
-              </GlassButton>
+              {/* Option B: Clean Data Only (Preserve Bot Tokens & Admin Access) */}
+              <div className="bg-slate-950/90 border border-amber-500/40 rounded-xl p-4 flex flex-col justify-between space-y-3">
+                <div className="space-y-1.5">
+                  <div className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                    <RefreshCw className="w-4 h-4 text-amber-400" />
+                    <span>پاکسازی داده‌های پرسنل و فیش‌ها (حفظ توکن و تنظیمات)</span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    تمامی پرسنل، درخواست‌های کارت ملی، فیش‌های حقوقی و پیام‌های ثبت‌شده در ربات به طور کامل صفر می‌شوند، ولی <strong>توکن ربات تلگرام/بله و لیست ادمین‌ها حفظ خواهند شد</strong> تا ربات قطع نشود.
+                  </p>
+                </div>
+                <div className="pt-2 flex justify-end">
+                  <GlassButton
+                    type="button"
+                    variant="amber"
+                    size="sm"
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          '⚠️ آیا مطمئن هستید که می‌خواهید داده‌های پرسنل و فیش‌ها را پاکسازی کنید؟ (توکن‌های ربات حفظ خواهند شد)'
+                        )
+                      ) {
+                        if (onWipeDatabase) onWipeDatabase(false);
+                      }
+                    }}
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    <span>پاکسازی پرسنل و فیش‌ها</span>
+                  </GlassButton>
+                </div>
+              </div>
             </div>
           </div>
         </div>

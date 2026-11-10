@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
+  Download,
   FileSpreadsheet,
   Megaphone,
   MessageSquare,
@@ -230,13 +231,21 @@ export default function App() {
     }
   };
 
-  const handleWipeDatabase = async () => {
+  const handleWipeDatabase = async (factoryReset = false) => {
     try {
-      const res = await fetch('/api/database/wipe', { method: 'POST' });
+      const res = await fetch('/api/database/wipe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ factoryReset }),
+      });
       const data = await res.json();
       if (data.ok && data.state) {
         setState(data.state);
-        alert('✅ دیتابیس با موفقیت کاملاً خام و پاکسازی گردید.');
+        alert(
+          factoryReset
+            ? '✅ سامانه ۱۰۰٪ ریست فکتوری شد و تمامی داده‌ها، پرسنل، فیش‌ها و توکن‌ها خام خام شدند.'
+            : '✅ داده‌های پرسنل و فیش‌های حقوقی با موفقیت پاکسازی شدند.'
+        );
       } else {
         alert(data.error || 'خطا در پاکسازی دیتابیس');
       }
@@ -392,8 +401,17 @@ export default function App() {
           </button>
         </nav>
 
-        {/* Zone 3: 1 Primary Action Button */}
-        <div className="flex items-center shrink-0">
+        {/* Zone 3: Header Action Buttons */}
+        <div className="flex items-center gap-2 shrink-0">
+          <a
+            href="/api/database/export"
+            download="payroll-database-backup.json"
+            title="دانلود مستقیم و دستی فایل کامل دیتابیس (.json)"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-slate-900 hover:bg-slate-800 text-teal-300 border border-teal-500/40 transition-colors shadow-sm cursor-pointer"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">دریافت بکاپ (.json)</span>
+          </a>
           <GlassButton
             variant="emerald"
             size="sm"

@@ -129,7 +129,7 @@ install_panel() {
     read -rp "Enter Telegram Bot Token (@BotFather) [optional]: " tg_token
     read -rp "Enter Bale Bot Token (@botfather) [optional]: " bale_token
     read -rp "Enter Admin Numeric Chat ID (e.g. 589402194) [optional]: " admin_id
-    ADMIN_ID="${admin_id:-100000001}"
+    ADMIN_ID="${admin_id:-}"
     read -rp "Enter In-Bot Master Secret for /setadmin [default: 123456]: " admin_secret
     ADMIN_SECRET="${admin_secret:-123456}"
 
@@ -256,7 +256,7 @@ PORT=${PORT}
 NODE_ENV=production
 TELEGRAM_BOT_TOKEN=${tg_tok}
 BALE_BOT_TOKEN=${bale_tok}
-ADMIN_IDS=${adm_id:-100000001}
+ADMIN_IDS=${adm_id:-}
 ADMIN_SECRET=${adm_sec:-123456}
 EOF
     systemctl restart ${SERVICE_NAME}

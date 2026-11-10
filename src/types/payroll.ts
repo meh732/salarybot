@@ -4,7 +4,8 @@ export type VerificationStatus =
   | 'unverified'
   | 'awaiting_channel'
   | 'awaiting_name'
-  | 'awaiting_national_card'
+  | 'awaiting_national_code'
+  | 'awaiting_photo'
   | 'pending_admin'
   | 'approved'
   | 'rejected';
@@ -113,6 +114,7 @@ export interface BotUser {
   jobTitle: string;
   isChannelMember: boolean;
   verificationStatus: VerificationStatus;
+  verificationStep?: 'idle' | 'awaiting_name' | 'awaiting_national_code' | 'awaiting_photo';
   rejectionReason?: string;
   isActive: boolean;
   selectedYear?: number;

@@ -78,6 +78,7 @@ export const BotSimulator: React.FC<BotSimulatorProps> = ({
     : [];
 
   const [inputText, setInputText] = useState('');
+  const [showMenuKeyboard, setShowMenuKeyboard] = useState(true);
   const [showCardModal, setShowCardModal] = useState(false);
   const [authFullName, setAuthFullName] = useState('');
   const [authNationalCode, setAuthNationalCode] = useState('');
@@ -147,6 +148,11 @@ export const BotSimulator: React.FC<BotSimulatorProps> = ({
     }
     if (btn.callbackData === 'open_admin_bot_file_picker') {
       adminChatFileInputRef.current?.click();
+      await onBotInteract({
+        userId: activeUser.id,
+        actionType: 'callback',
+        payload: 'open_admin_bot_file_picker',
+      });
       return;
     }
     if (btn.callbackData === 'join_channel_now') {
@@ -689,14 +695,16 @@ export const BotSimulator: React.FC<BotSimulatorProps> = ({
 
       {/* Persistent Square Reply Keyboard Grid (منوی مربع کیبورد زیر نوار چت در تلگرام و بله) */}
       <div className="p-3 bg-slate-950 border-t border-slate-800 space-y-2">
-        <div className="text-[11px] font-bold text-slate-400 flex items-center justify-between px-1">
-          <span>⌨️ منوی مربع کیبورد پیوست زیر نوار چت (Reply Keyboard):</span>
-          <span className="text-[10px] text-cyan-400 font-mono">
-            {isUserAdmin ? 'کیبورد ویژه ادمین کل' : 'کیبورد پرسنلی'}
-          </span>
-        </div>
+        {showMenuKeyboard && (
+          <>
+            <div className="text-[11px] font-bold text-slate-400 flex items-center justify-between px-1">
+              <span>⌨️ منوی مربع کیبورد پیوست زیر نوار چت (Reply Keyboard):</span>
+              <span className="text-[10px] text-cyan-400 font-mono">
+                {isUserAdmin ? 'کیبورد ویژه ادمین کل' : 'کیبورد پرسنلی'}
+              </span>
+            </div>
 
-        <div className="grid grid-cols-2 gap-1.5">
+            <div className="grid grid-cols-2 gap-1.5">
           {isUserAdmin ? (
             <>
               <button
@@ -775,11 +783,25 @@ export const BotSimulator: React.FC<BotSimulatorProps> = ({
                   onBotInteract({
                     userId: activeUser.id,
                     actionType: 'text',
+                    payload: '💾 دریافت بکاپ دیتابیس',
+                  })
+                }
+                disabled={isBusy}
+                className="py-2 px-3 rounded-xl bg-teal-500/20 hover:bg-teal-500/30 border border-teal-500/40 text-xs font-semibold text-teal-300 transition-all cursor-pointer text-center truncate active:scale-98 shadow-sm"
+              >
+                💾 دریافت بکاپ دیتابیس
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  onBotInteract({
+                    userId: activeUser.id,
+                    actionType: 'text',
                     payload: '👤 کد پرسنلی و اطلاعات من',
                   })
                 }
                 disabled={isBusy}
-                className="py-2 px-3 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 border border-slate-700/80 text-xs font-semibold text-indigo-300 transition-all cursor-pointer text-center truncate active:scale-98 shadow-sm"
+                className="py-2 px-3 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 border border-slate-700/80 text-xs font-semibold text-indigo-300 transition-all cursor-pointer text-center truncate active:scale-98 shadow-sm col-span-2 sm:col-span-1"
               >
                 👤 کد پرسنلی و اطلاعات من
               </button>
@@ -883,6 +905,8 @@ export const BotSimulator: React.FC<BotSimulatorProps> = ({
             </>
           )}
         </div>
+          </>
+        )}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
           {isUserAdmin && (
             <>
@@ -1013,6 +1037,20 @@ export const BotSimulator: React.FC<BotSimulatorProps> = ({
         </div>
 
         <form onSubmit={handleSendText} className="flex items-center gap-2">
+          {/* Menu button ([::] / ☰) */}
+          <button
+            type="button"
+            onClick={() => setShowMenuKeyboard((prev) => !prev)}
+            title="نمایش یا بستن منوی دکمه‌های ربات"
+            className={`p-2.5 rounded-xl border transition-colors cursor-pointer shrink-0 flex items-center justify-center font-bold text-xs gap-1 ${
+              showMenuKeyboard
+                ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-sm shadow-cyan-500/20'
+                : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-white'
+            }`}
+          >
+            <span className="text-sm">⊞</span>
+            <span className="text-[11px] hidden sm:inline">منو</span>
+          </button>
           {isUserAdmin ? (
             <button
               type="button"
