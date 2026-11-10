@@ -95,13 +95,38 @@ export const BotSimulator: React.FC<BotSimulatorProps> = ({
 
   useEffect(() => {
     if (activeUser) {
-      setAuthFullName(activeUser.submittedName || 'رضا رضایی‌پور');
-      setAuthNationalCode(activeUser.nationalCode || '0491827364');
+      setAuthFullName(activeUser.submittedName || '');
+      setAuthNationalCode(activeUser.nationalCode || '');
       setAuthCardPreview('');
     }
   }, [activeUser?.id]);
 
-  if (!activeUser) return null;
+  if (!activeUser) {
+    return (
+      <div className="flex flex-col items-center justify-center p-8 bg-slate-900 border border-slate-800 rounded-2xl text-center space-y-4 my-auto min-h-[400px]">
+        <div className="w-16 h-16 rounded-full bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+          <MessageSquare className="w-8 h-8" />
+        </div>
+        <div className="space-y-1">
+          <h3 className="text-base font-bold text-white">دیتابیس در وضعیت کاملاً خام (Clean State)</h3>
+          <p className="text-xs text-slate-400 max-w-md leading-relaxed">
+            هیچ کاربری در دیتابیس ثبت نشده است. برای تست گردش کار احراز هویت اولیه پرسنل یا شروع به عنوان ادمین کل، یکی از گزینه‌های زیر را انتخاب فرمایید:
+          </p>
+        </div>
+        <div className="flex items-center gap-3 flex-wrap justify-center pt-2">
+          {onCreateSimUser && (
+            <button
+              type="button"
+              onClick={() => onCreateSimUser('telegram')}
+              className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs shadow-lg transition-colors cursor-pointer"
+            >
+              ➕ ایجاد پرسنل جدید در شبیه‌ساز (تست احراز هویت و کارت ملی)
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   const isTelegram = activeUser.platform === 'telegram';
   const isUserAdmin =
@@ -163,22 +188,26 @@ export const BotSimulator: React.FC<BotSimulatorProps> = ({
       } else {
         // PDF or Image payslip uploaded directly inside bot chat
         const codeMatch = toEnglishDigits(file.name).match(/\b(10\d{2}|\d{3,6})\b/);
-        const detectedCode = codeMatch ? codeMatch[1] : '1001';
-        const person =
-          state.personnelDirectory.find((p) => p.personnelCode === detectedCode) ||
-          state.personnelDirectory[0];
+        const detectedCode = codeMatch ? codeMatch[1] : (activeUser.adminSession?.targetPersonnelCode || '1001');
+        const person = state.personnelDirectory.find((p) => p.personnelCode === detectedCode);
+        const personCode = person?.personnelCode || detectedCode;
+        const employeeName = person?.fullName || `پرسنل کد ${detectedCode}`;
+        const nationalCode = person?.nationalCode || '0010000000';
+        const department = person?.department || 'عمومی';
+        const jobTitle = person?.jobTitle || 'کارشناس';
+        const bankAccount = person?.bankAccount || 'IR420170000000109283746501';
 
         const reader = new FileReader();
         reader.onload = async () => {
           const dataUrl = typeof reader.result === 'string' ? reader.result : '';
           const isPdf = file.name.toLowerCase().endsWith('.pdf');
           const singleItem: Omit<PayslipItem, 'id' | 'createdAt'> = {
-            personnelCode: person.personnelCode,
-            employeeName: person.fullName,
-            nationalCode: person.nationalCode,
-            department: person.department,
-            jobTitle: person.jobTitle,
-            bankAccount: person.bankAccount,
+            personnelCode: personCode,
+            employeeName,
+            nationalCode,
+            department,
+            jobTitle,
+            bankAccount,
             year: uploadYear,
             month: uploadMonth,
             monthName: monthObj.name,
@@ -755,7 +784,7 @@ export const BotSimulator: React.FC<BotSimulatorProps> = ({
                 👤 کد پرسنلی و اطلاعات من
               </button>
             </>
-          ) : (
+          ) : activeUser.verificationStatus === 'approved' && Boolean(activeUser.personnelCode) ? (
             <>
               <button
                 type="button"
@@ -812,6 +841,44 @@ export const BotSimulator: React.FC<BotSimulatorProps> = ({
                 className="py-2 px-3 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 border border-slate-700/80 text-xs font-semibold text-violet-300 transition-all cursor-pointer text-center truncate active:scale-98 shadow-sm"
               >
                 💬 پشتیبانی
+              </button>
+            </>
+          ) : (
+            <>
+              {/* Strictly Gated: Unverified / Pending User Only Gets Verification & Support */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (activeUser.verificationStatus === 'pending_admin') {
+                    onBotInteract({
+                      userId: activeUser.id,
+                      actionType: 'callback',
+                      payload: 'check_verification',
+                    });
+                  } else {
+                    setShowCardModal(true);
+                  }
+                }}
+                disabled={isBusy}
+                className="py-2.5 px-3 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-xs font-bold text-emerald-300 transition-all cursor-pointer text-center col-span-2 shadow-sm"
+              >
+                {activeUser.verificationStatus === 'pending_admin'
+                  ? '⏳ استعلام وضعیت تأیید احراز هویت توسط مدیریت'
+                  : '🪪 احراز هویت و ارسال کارت ملی (تنها گزینه فعال)'}
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  onBotInteract({
+                    userId: activeUser.id,
+                    actionType: 'callback',
+                    payload: 'menu_support',
+                  })
+                }
+                disabled={isBusy}
+                className="py-2 px-3 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 border border-slate-700/80 text-xs font-semibold text-slate-300 transition-all cursor-pointer text-center col-span-2"
+              >
+                💬 ارتباط با پشتیبانی و امور پرسنلی
               </button>
             </>
           )}

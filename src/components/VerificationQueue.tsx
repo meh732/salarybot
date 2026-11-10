@@ -82,12 +82,15 @@ export const VerificationQueue: React.FC<VerificationQueueProps> = ({
         (user.nationalCode && p.nationalCode === user.nationalCode) ||
         (user.submittedName && p.fullName.includes(user.submittedName))
     );
-    return match ? match.personnelCode : '1004';
+    return match ? match.personnelCode : '';
   };
 
   const handleApproveAndLink = async (user: BotUser) => {
     const code = getSuggestedCode(user).trim();
-    if (!code) return;
+    if (!code) {
+      alert('⚠️ وارد کردن کد پرسنلی الزامی است!\nلطفاً کد پرسنلی کاربر را دقیقاً مطابق با فایل اکسل سازمان درج نمایید تا اطلاعات کاربران با یکدیگر قاطی نشود.');
+      return;
+    }
     const matchedRecord = state.personnelDirectory.find((p) => p.personnelCode === code);
     const dept =
       selectedDepts[user.id] ||
@@ -333,8 +336,26 @@ export const VerificationQueue: React.FC<VerificationQueueProps> = ({
                   {/* Select or Type Personnel Code */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <div>
+                      <label className="block text-[11px] font-bold text-cyan-300 mb-1">
+                        🔢 درج دستی کد پرسنلی (دقیقاً مطابق فایل اکسل شرکت):
+                      </label>
+                      <input
+                        type="text"
+                        value={currentCodeValue}
+                        onChange={(e) =>
+                          setSelectedCodes((prev) => ({ ...prev, [user.id]: e.target.value }))
+                        }
+                        placeholder="مثال: 1002 یا 1005 (مطابق اکسل)"
+                        className="w-full bg-slate-900 border-2 border-cyan-500/50 rounded-lg px-3 py-2 text-xs text-white font-mono placeholder:text-slate-500 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400"
+                      />
+                      <span className="text-[10px] text-amber-300 block mt-0.5">
+                        ⚠️ جهت جلوگیری از قاطی شدن اطلاعات، کد باید با اکسل یکی باشد.
+                      </span>
+                    </div>
+
+                    <div>
                       <label className="block text-[11px] text-slate-400 mb-1">
-                        انتخاب از لیست پرسنل سازمان:
+                        یا انتخاب سریع از کدهای شناخته‌شده در اکسل:
                       </label>
                       <select
                         value={currentCodeValue}
@@ -348,27 +369,13 @@ export const VerificationQueue: React.FC<VerificationQueueProps> = ({
                         }}
                         className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
                       >
+                        <option value="">-- انتخاب از کدهای بارگذاری شده در اکسل --</option>
                         {state.personnelDirectory.map((p) => (
                           <option key={p.personnelCode} value={p.personnelCode}>
                             کد {toPersianDigits(p.personnelCode)} — {p.fullName} ({p.department})
                           </option>
                         ))}
                       </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] text-slate-400 mb-1">
-                        یا درج دستی کد پرسنلی خاص:
-                      </label>
-                      <input
-                        type="text"
-                        value={currentCodeValue}
-                        onChange={(e) =>
-                          setSelectedCodes((prev) => ({ ...prev, [user.id]: e.target.value }))
-                        }
-                        placeholder="مثال: 1004"
-                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-cyan-500"
-                      />
                     </div>
                   </div>
 
@@ -384,7 +391,9 @@ export const VerificationQueue: React.FC<VerificationQueueProps> = ({
                           >
                             <UserCheck className="w-3.5 h-3.5" />
                             <span>
-                              تأیید و لینک به کد {toPersianDigits(currentCodeValue)}
+                              {currentCodeValue
+                                ? `تأیید و اتصال به کد پرسنلی ${toPersianDigits(currentCodeValue)} (اکسل)`
+                                : 'تأیید و اتصال به کد پرسنلی (ورود کد الزامی است)'}
                             </span>
                           </GlassButton>
                           <GlassButton
@@ -489,7 +498,9 @@ export const VerificationQueue: React.FC<VerificationQueueProps> = ({
               >
                 <UserCheck className="w-4 h-4" />
                 <span>
-                  تأیید کارت ملی و اتصال به کد پرسنلی {toPersianDigits(getSuggestedCode(previewCardUser))}
+                  {getSuggestedCode(previewCardUser)
+                    ? `تأیید کارت ملی و اتصال به کد پرسنلی ${toPersianDigits(getSuggestedCode(previewCardUser))}`
+                    : 'تأیید کارت ملی (لطفاً ابتدا کد پرسنلی اکسل را مشخص کنید)'}
                 </span>
               </GlassButton>
             </div>

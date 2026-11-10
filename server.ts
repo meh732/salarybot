@@ -1,6 +1,7 @@
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
+import * as XLSX from 'xlsx';
 import { createServer as createViteServer } from 'vite';
 import {
   AppStateResponse,
@@ -103,13 +104,23 @@ function isMessengerAdmin(
   return false;
 }
 
-function buildTelegramReplyKeyboard(isAdmin: boolean) {
+function buildTelegramReplyKeyboard(isAdmin: boolean, isApproved = false, isPending = false) {
   if (isAdmin) {
     return {
       keyboard: [
         [{ text: '📄 دریافت فیش حقوقی' }, { text: '📊 آخرین فیش صادر شده' }],
         [{ text: '👑 پنل مدیریت (/admin)' }, { text: '🪪 صف کارت ملی' }],
         [{ text: '📤 آپلود فیش' }, { text: '👤 کد پرسنلی و اطلاعات من' }],
+      ],
+      resize_keyboard: true,
+      persistent: true,
+    };
+  }
+  if (!isApproved) {
+    return {
+      keyboard: [
+        [{ text: isPending ? '⏳ استعلام وضعیت تأیید احراز هویت' : '🪪 احراز هویت و ارسال کارت ملی' }],
+        [{ text: '💬 پشتیبانی' }],
       ],
       resize_keyboard: true,
       persistent: true,
@@ -515,14 +526,23 @@ function executeUserVerificationLink(
 function buildAdminVerifyUserButtons(state: AppStateResponse, targetUser: BotUser): BotButton[][] {
   const rows: BotButton[][] = [];
 
-  // Suggest matching or common personnel codes as 1-click glass buttons
+  // 1. Primary Action: Manual custom personnel code typing matching company Excel
+  rows.push([
+    {
+      text: '✍️ اختصاص کد پرسنلی دستی (تایپ کد اکسل)',
+      callbackData: `adm_ask_code:${targetUser.id}`,
+      colorVariant: 'cyan',
+    },
+  ]);
+
+  // 2. Suggest known personnel codes from directory if any exist
   const suggestedRecords = state.personnelDirectory.slice(0, 4);
   for (let i = 0; i < suggestedRecords.length; i += 2) {
     const row: BotButton[] = [];
     for (let j = i; j < Math.min(i + 2, suggestedRecords.length); j++) {
       const rec = suggestedRecords[j];
       row.push({
-        text: `🔗 لینک به کد ${toPersianDigitsServer(rec.personnelCode)} (${rec.fullName})`,
+        text: `🔗 اتصال به کد ${toPersianDigitsServer(rec.personnelCode)} (${rec.fullName})`,
         callbackData: `adm_link_code:${targetUser.id}:${rec.personnelCode}`,
         colorVariant: 'emerald',
       });
@@ -530,20 +550,20 @@ function buildAdminVerifyUserButtons(state: AppStateResponse, targetUser: BotUse
     rows.push(row);
   }
 
+  // 3. Reject button and admin panel return
   rows.push([
-    {
-      text: '✍️ تایپ دستی کد پرسنلی دلخواه در چت بات',
-      callbackData: `adm_ask_code:${targetUser.id}`,
-      colorVariant: 'cyan',
-    },
     {
       text: '❌ رد کارت ملی و درخواست',
       callbackData: `adm_reject:${targetUser.id}`,
       colorVariant: 'rose',
     },
+    {
+      text: '👑 بازگشت به پنل مدیریت',
+      callbackData: 'adm_panel',
+      colorVariant: 'amber',
+    },
   ]);
 
-  rows.push([{ text: '👑 بازگشت به پنل مدیریت درون بات', callbackData: 'adm_panel', colorVariant: 'amber' }]);
   return rows;
 }
 
@@ -1775,44 +1795,67 @@ function handleBotInteraction(
 
   // 5. If user is NOT yet approved by Admin (First-Time Authentication Flow)
   if (user.verificationStatus !== 'approved' || !user.personnelCode) {
-    if (params.actionType === 'text' && payload && !payload.startsWith('/')) {
-      user.submittedName = payload.trim();
-      user.verificationStatus = 'awaiting_national_card';
-      pushUserMsg(payload.trim());
-      pushBotMsg(
-        `✅ نام و نام خانوادگی «${user.submittedName}» ثبت شد.\n\n📸 گام نهایی احراز هویت:\nلطفاً تصویر کارت ملی هوشمند خود را ارسال نمایید:`,
-        [
+    if (payload === 'check_verification' || payload === '⏳ استعلام وضعیت تأیید احراز هویت' || payload === '⏳ وضعیت بررسی احراز هویت') {
+      pushUserMsg('🔄 استعلام وضعیت احراز هویت');
+      if (user.verificationStatus === 'pending_admin') {
+        pushBotMsg(
+          `⏳ پرونده احراز هویت شما (${user.submittedName || 'همکار گرامی'} - آیدی ${platformLabel}: ${user.messengerId}) در چت ربات ادمین منتظر بررسی و اختصاص دستی کد پرسنلی است.\n\nبه محض اینکه مدیر کل سازمان، کد پرسنلی شما را تأیید فرماید، فیش‌های حقوقی شما فعال و فوراً به شما اطلاع داده خواهد شد.`,
           [
-            {
-              text: '🪪 ارسال فوری تصویر کارت ملی و تکمیل احراز هویت',
-              callbackData: 'open_card_uploader',
-              colorVariant: 'emerald',
-            },
-          ],
-          [{ text: '✏️ ویرایش نام و نام خانوادگی', callbackData: 'restart_auth', colorVariant: 'amber' }],
+            [{ text: '🔄 استعلام مجدد وضعیت تأیید', callbackData: 'check_verification', colorVariant: 'amber' }],
+            [{ text: '✏️ ویرایش نام و ارسال مجدد کارت ملی', callbackData: 'restart_auth', colorVariant: 'cyan' }],
+            [{ text: '💬 پشتیبانی و کارگزینی', callbackData: 'menu_support', colorVariant: 'violet' }],
+          ]
+        );
+      } else if (user.verificationStatus === 'rejected') {
+        pushBotMsg(
+          `❌ درخواست احراز هویت قبلی شما توسط ادمین تأیید نشد.\n📌 علت: ${
+            user.rejectionReason || 'عدم تطابق تصویر کارت ملی با مشخصات پرسنلی'
+          }\n\nلطفاً مجدداً نام کامل و تصویر واضح کارت ملی خود را ارسال فرمایید:`,
+          [[{ text: '🪪 ارسال مجدد نام و تصویر کارت ملی', callbackData: 'open_card_uploader', colorVariant: 'emerald' }]]
+        );
+      } else {
+        pushBotMsg(
+          `⚠️ احراز هویت شما هنوز تکمیل نشده است. لطفاً ابتدا نام و تصویر کارت ملی خود را ارسال فرمایید:`,
+          [[{ text: '🪪 احراز هویت و ارسال کارت ملی', callbackData: 'open_card_uploader', colorVariant: 'emerald' }]]
+        );
+      }
+      return { user, messages: chat };
+    }
+
+    if (payload === 'menu_support' || payload === '💬 پشتیبانی') {
+      pushUserMsg('💬 پشتیبانی و کارگزینی');
+      pushBotMsg(
+        `📞 **واحد کارگزینی و پشتیبانی امور پرسنلی**\n────────────────────\nدر صورت وجود هرگونه سؤال درباره روند احراز هویت یا دریافت فیش، با پشتیبانی در ارتباط باشید:\n\n• آی‌دی پشتیبانی: **${state.config.supportContact}**\n• شماره آیدی شما در سامانه: \`${user.messengerId}\``,
+        [
+          [{ text: '🪪 بازگشت به احراز هویت', callbackData: 'open_card_uploader', colorVariant: 'emerald' }],
         ]
       );
       return { user, messages: chat };
     }
 
-    if (payload === 'check_verification') {
-      pushUserMsg('🔄 استعلام وضعیت احراز هویت');
-      if (user.verificationStatus === 'pending_admin') {
-        pushBotMsg(
-          `⏳ پرونده احراز هویت شما (${user.submittedName} - آیدی ${platformLabel}: ${user.messengerId}) در چت ربات ادمین منتظر اتصال به کد پرسنلی است.\n\nنکته: می‌توانید از بالای شبیه‌ساز روی تب «👑 مدیر کل سامانه (اکانت ادمین در بات)» کلیک کنید و مستقیماً از داخل چت ربات ادمین، این کارت ملی را به کد پرسنلی لینک کنید!`,
+    if (payload === 'open_card_uploader' || payload === '🪪 احراز هویت و ارسال کارت ملی' || payload === '🪪 ارسال نام و تصویر کارت ملی') {
+      pushUserMsg('🪪 احراز هویت و ارسال کارت ملی');
+      pushBotMsg(
+        `📸 **ارسال تصویر کارت ملی جهت احراز هویت**\n────────────────────\nلطفاً تصویر واضح کارت ملی هوشمند خود را مستقیماً در همین چت ارسال نمایید (به صورت عکس یا فایل) یا روی دکمه شیشه‌ای زیر کلیک کنید:`,
+        [
           [
-            [{ text: '🔄 بررسی مجدد وضعیت تأیید', callbackData: 'check_verification', colorVariant: 'amber' }],
-            [{ text: '✏️ ارسال مجدد مشخصات و کارت ملی', callbackData: 'restart_auth', colorVariant: 'cyan' }],
-          ]
-        );
-      } else if (user.verificationStatus === 'rejected') {
-        pushBotMsg(
-          `❌ درخواست احراز هویت قبلی شما توسط ادمین رد شده است.\nعلت: ${
-            user.rejectionReason || 'عدم تطابق تصویر کارت ملی با مشخصات پرسنلی'
-          }\n\nلطفاً مجدداً نام کامل و تصویر واضح کارت ملی خود را ارسال فرمایید:`,
-          [[{ text: '🪪 ارسال مجدد نام و تصویر کارت ملی', callbackData: 'open_card_uploader', colorVariant: 'emerald' }]]
-        );
-      }
+            {
+              text: '🪪 بارگذاری فرم و تصویر کارت ملی',
+              callbackData: 'open_card_uploader',
+              colorVariant: 'emerald',
+            },
+          ],
+          [{ text: '💬 راهنمای احراز هویت پرسنل', callbackData: 'auth_help', colorVariant: 'cyan' }],
+        ]
+      );
+      return { user, messages: chat };
+    }
+
+    if (payload === 'auth_help') {
+      pushBotMsg(
+        `📌 **راهنمای احراز هویت پرسنل:**\n۱. نام و تصویر کارت ملی خود را در ربات ثبت می‌کنید.\n۲. مدیر کل سامانه در ربات خود کارت ملی را تطبیق داده و «کد پرسنلی اختصاصی شما در فایل اکسل سازمان» را به حساب شما متصل می‌کند.\n۳. بلافاصله پس از تأیید، دکمه‌های دریافت فیش حقوقی برای شما باز خواهد شد.`,
+        [[{ text: '🪪 شروع احراز هویت و ارسال کارت ملی', callbackData: 'open_card_uploader', colorVariant: 'emerald' }]]
+      );
       return { user, messages: chat };
     }
 
@@ -1827,9 +1870,9 @@ function handleBotInteraction(
       }
       if (user.verificationStatus === 'pending_admin' && payload !== 'restart_auth') {
         pushBotMsg(
-          `✅ عضویت شما در کانال رسمی تأیید شد.\n⏳ اطلاعات کارت ملی شما (${user.submittedName}) قبلاً ارسال شده و در ربات ادمین منتظر اتصال به کد پرسنلی است.`,
+          `⏳ اطلاعات هویتی و کارت ملی شما قبلاً ثبت شده و در نوبت تأیید ادمین قرار دارد.\nبه محض اتصال کد پرسنلی توسط مدیر سازمان، فیش‌های شما فعال خواهند شد.`,
           [
-            [{ text: '🔄 بررسی وضعیت تأیید ادمین', callbackData: 'check_verification', colorVariant: 'amber' }],
+            [{ text: '🔄 استعلام وضعیت تأیید ادمین', callbackData: 'check_verification', colorVariant: 'amber' }],
             [{ text: '✏️ ویرایش نام و تصویر کارت ملی', callbackData: 'open_card_uploader', colorVariant: 'cyan' }],
           ]
         );
@@ -1838,11 +1881,11 @@ function handleBotInteraction(
 
       user.verificationStatus = 'awaiting_name';
       pushBotMsg(
-        `✅ عضویت شما در کانال سازمانی (${channelHandle}) تأیید شد!\n\n🔐 مرحله احراز هویت اولیه پرسنل:\nاز آنجا که این اولین ورود شما با آیدی ${platformLabel} (${user.messengerId}) است، جهت اتصال حساب شما به «کد پرسنلی اختصاصی»، لطفاً:\n\n۱. نام و نام خانوادگی کامل خود را در کادر پیام بنویسید یا روی دکمه شیشه‌ای زیر کلیک کنید.\n۲. تصویر کارت ملی خود را بارگذاری نمایید تا برای ربات ادمین ارسال شود.`,
+        `سلام! به سامانه هوشمند فیش حقوقی «${state.config.organizationName}» خوش آمدید.\n\n🔒 **احراز هویت الزامی است:**\nاز آنجا که این اولین ورود شما با آیدی ${platformLabel} (${user.messengerId}) است، جهت حفظ حریم خصوصی و اتصال به «کد پرسنلی سازمان»، لطفاً ابتدا نام و تصویر کارت ملی خود را ارسال نمایید:`,
         [
           [
             {
-              text: '🪪 فرم ثبت نام کامل + بارگذاری تصویر کارت ملی',
+              text: '🪪 احراز هویت و ارسال کارت ملی',
               callbackData: 'open_card_uploader',
               colorVariant: 'emerald',
             },
@@ -1853,21 +1896,75 @@ function handleBotInteraction(
       return { user, messages: chat };
     }
 
-    if (payload === 'auth_help') {
+    // Check if the user is typing their real name
+    const isReservedButton =
+      payload.includes('فیش') ||
+      payload.includes('پرسنلی') ||
+      payload.includes('پشتیبانی') ||
+      payload.includes('احراز') ||
+      payload.includes('صف') ||
+      payload.includes('مدیریت') ||
+      payload.includes('menu_') ||
+      payload.includes('latest_');
+
+    if (params.actionType === 'text' && payload && !payload.startsWith('/') && !isReservedButton) {
+      if (user.verificationStatus === 'pending_admin') {
+        pushUserMsg(payload.trim());
+        pushBotMsg(
+          `⏳ همکار گرامی، مدارک شما (${user.submittedName}) قبلاً ارسال شده و منتظر بررسی و تأیید کد پرسنلی توسط ادمین است.`,
+          [
+            [{ text: '🔄 استعلام وضعیت تأیید ادمین', callbackData: 'check_verification', colorVariant: 'amber' }],
+            [{ text: '✏️ ارسال مجدد مشخصات و کارت ملی', callbackData: 'restart_auth', colorVariant: 'cyan' }],
+          ]
+        );
+        return { user, messages: chat };
+      }
+
+      user.submittedName = payload.trim();
+      user.verificationStatus = 'awaiting_national_card';
+      pushUserMsg(payload.trim());
       pushBotMsg(
-        `📌 راهنمای احراز هویت امن پرسنل:\n۱. ابتدا عضو کانال رسمی سازمان (${channelHandle}) شوید.\n۲. نام و نام خانوادگی و تصویر کارت ملی خود را ارسال کنید.\n۳. ادمین مستقیماً در ربات خود، مشخصات و آیدی ${platformLabel} شما (${user.messengerId}) را بررسی کرده و به کد پرسنلی شما متصل می‌کند.\n۴. پس از تأیید، هر ماه فیش حقوقی خود را به صورت تصویر و PDF دریافت خواهید کرد.`,
+        `✅ نام و نام خانوادگی «${user.submittedName}» ثبت شد.\n\n📸 لطفاً تصویر کارت ملی هوشمند خود را ارسال فرمایید تا برای ادمین ارسال شود:`,
         [
           [
             {
-              text: '🪪 ارسال نام و تصویر کارت ملی',
+              text: '🪪 بارگذاری تصویر کارت ملی',
               callbackData: 'open_card_uploader',
               colorVariant: 'emerald',
             },
           ],
+          [{ text: '✏️ ویرایش نام', callbackData: 'restart_auth', colorVariant: 'amber' }],
         ]
       );
       return { user, messages: chat };
     }
+
+    // STRICT GATEKEEPING: Block ANY other attempt (payslips, latest payslip, profile, etc.)
+    pushUserMsg(payload || 'درخواست دسترسی');
+    pushBotMsg(
+      `🔒 **دسترسی مسدود است - احراز هویت شما تأیید نشده است**\n────────────────────\nهمکار گرامی، تا زمانی که مشخصات و تصویر کارت ملی شما ارسال نشده و توسط مدیر سیستم تأیید و «کد پرسنلی» به شما اختصاص داده نشود، امکان دریافت فیش حقوقی و خدمات سازمانی را نخواهید داشت.\n\n📌 وضعیت فعلی شما: **${
+        user.verificationStatus === 'pending_admin'
+          ? '⏳ در انتظار بررسی و اختصاص کد پرسنلی توسط ادمین'
+          : '❌ احراز هویت اولیه انجام نشده'
+      }**\n\n👇 لطفاً از طریق دکمه زیر اقدام فرمایید:`,
+      [
+        [
+          user.verificationStatus === 'pending_admin'
+            ? {
+                text: '🔄 استعلام وضعیت تأیید ادمین',
+                callbackData: 'check_verification',
+                colorVariant: 'amber',
+              }
+            : {
+                text: '🪪 احراز هویت و ارسال کارت ملی',
+                callbackData: 'open_card_uploader',
+                colorVariant: 'emerald',
+              },
+        ],
+        [{ text: '💬 پشتیبانی امور پرسنلی', callbackData: 'menu_support', colorVariant: 'violet' }],
+      ]
+    );
+    return { user, messages: chat };
   }
 
   // 6. Authenticated & Approved Personnel Flow (`user.verificationStatus === 'approved' && user.personnelCode`)
@@ -2090,7 +2187,30 @@ async function startServer() {
       fileName: string;
     };
 
-    const adminUser = state.users.find((u) => u.id === adminUserId) || state.users[0];
+    let adminUser = state.users.find((u) => u.id === adminUserId || u.isAdmin);
+    if (!adminUser) {
+      adminUser = {
+        id: adminUserId || 'usr-admin-master',
+        messengerId: '92218188',
+        username: 'admin',
+        platform: 'telegram',
+        isAdmin: true,
+        submittedName: 'مدیر کل سامانه',
+        nationalCode: '0010000001',
+        phoneNumber: '09120000000',
+        nationalCardImageUrl: '',
+        personnelCode: '1001',
+        department: 'مدیریت ارشد',
+        jobTitle: 'ادمین کل سامانه',
+        isChannelMember: true,
+        verificationStatus: 'approved',
+        isActive: true,
+        selectedYear: 1404,
+        joinedAt: `۱۴۰۴/۰۸/۱۵ - ${nowTimeStr()}`,
+        lastInteractionAt: `۱۴۰۴/۰۸/۱۵ - ${nowTimeStr()}`,
+      };
+      state.users.unshift(adminUser);
+    }
     if (!state.messagesByUser[adminUser.id]) {
       state.messagesByUser[adminUser.id] = [];
     }
@@ -2108,6 +2228,21 @@ async function startServer() {
     for (const item of items) {
       const cleanCode = String(item.personnelCode || '').trim();
       if (!cleanCode) continue;
+
+      // Auto-populate directory record if not already present
+      const existingDir = state.personnelDirectory.find((p) => p.personnelCode === cleanCode);
+      if (!existingDir) {
+        state.personnelDirectory.push({
+          personnelCode: cleanCode,
+          fullName: item.employeeName || `پرسنل ${cleanCode}`,
+          nationalCode: item.nationalCode || '0010000000',
+          department: item.department || 'عمومی',
+          jobTitle: item.jobTitle || 'کارمند',
+          bankAccount: item.bankAccount || 'IR420170000000109283746501',
+          phoneNumber: '09120000000',
+          isActive: true,
+        });
+      }
       const monthObj = PERSIAN_MONTHS.find((m) => m.number === Number(item.month)) || PERSIAN_MONTHS[0];
       const existingIdx = state.payslips.findIndex(
         (p) => p.personnelCode === cleanCode && p.year === Number(item.year) && p.month === Number(item.month)
@@ -2689,77 +2824,11 @@ async function startServer() {
   app.post('/api/webhook/:platform', async (req, res) => {
     const platform = (req.params.platform === 'bale' ? 'bale' : 'telegram') as 'telegram' | 'bale';
     const update = req.body;
+    res.status(200).json({ ok: true });
     try {
-      const msg = update?.message || update?.callback_query?.message;
-      const from = update?.message?.from || update?.callback_query?.from;
-      const textOrData = update?.callback_query?.data || update?.message?.text || '/start';
-
-      if (from && msg) {
-        const messengerId = String(from.id);
-        let botUser = state.users.find((u) => u.messengerId === messengerId && u.platform === platform);
-        if (!botUser) {
-          botUser = {
-            id: `usr-${platform}-${messengerId}`,
-            messengerId,
-            username: from.username || `user_${messengerId}`,
-            platform,
-            isAdmin: Boolean(state.config.adminMessengerIds?.includes(messengerId)),
-            submittedName: `${from.first_name || ''} ${from.last_name || ''}`.trim(),
-            nationalCode: '',
-            phoneNumber: '',
-            nationalCardImageUrl: '',
-            personnelCode: null,
-            department: 'کاربر جدید',
-            jobTitle: 'تعیین نشده',
-            isChannelMember: false,
-            verificationStatus: 'unverified',
-            isActive: true,
-            selectedYear: 1404,
-            joinedAt: `۱۴۰۴/۰۸/۱۵ - ${nowTimeStr()}`,
-            lastInteractionAt: `۱۴۰۴/۰۸/۱۵ - ${nowTimeStr()}`,
-          };
-          state.users.push(botUser);
-          state.messagesByUser[botUser.id] = [];
-        }
-
-        const result = handleBotInteraction(state, {
-          userId: botUser.id,
-          actionType: update?.callback_query ? 'callback' : textOrData.startsWith('/') ? 'command' : 'text',
-          payload: textOrData,
-        });
-        saveState(state);
-
-        // Send reply back to real Telegram / Bale user
-        const token = platform === 'telegram' ? state.config.telegramBotToken : state.config.baleBotToken;
-        const lastBotMsg = [...result.messages].reverse().find((m) => m.sender === 'bot');
-        if (token && lastBotMsg) {
-          const sendUrl =
-            platform === 'telegram'
-              ? `https://api.telegram.org/bot${token}/sendMessage`
-              : `https://tapi.bale.ai/bot${token}/sendMessage`;
-
-          const inline_keyboard = lastBotMsg.inlineKeyboard?.map((row) =>
-            row.map((b) => ({
-              text: b.text,
-              callback_data: b.callbackData || 'main_menu',
-            }))
-          );
-
-          await fetch(sendUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chat_id: msg.chat.id,
-              text: lastBotMsg.text,
-              reply_markup: inline_keyboard ? { inline_keyboard } : undefined,
-            }),
-          });
-        }
-      }
-      res.status(200).json({ ok: true });
+      await processIncomingUpdate(platform, update);
     } catch (err) {
       console.error('Webhook processing error:', err);
-      res.status(200).json({ ok: true });
     }
   });
 
@@ -3075,15 +3144,21 @@ console.log("🚀 Payroll Bot (with Full In-Bot Admin Panel /admin) Started for:
   let telegramOffset = 0;
   let baleOffset = 0;
 
+
   async function pollTelegram() {
     const token = state.config.telegramBotToken?.trim();
     if (!token) return;
     try {
-      // Auto-clear webhook if previously set so getUpdates immediately receives messages
-      if (!hasClearedTgWebhook) {
-        await fetch(`https://api.telegram.org/bot${token}/deleteWebhook?drop_pending_updates=false`).catch(() => {});
-        hasClearedTgWebhook = true;
+      // Check if a webhook is currently active on Telegram
+      const infoRes = await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`).catch(() => null);
+      if (infoRes && infoRes.ok) {
+        const infoData = (await infoRes.json()) as { ok?: boolean; result?: { url?: string } };
+        if (infoData.ok && infoData.result?.url) {
+          // A live Webhook is active! Respect the webhook and do not delete it or poll
+          return;
+        }
       }
+
       const url = `https://api.telegram.org/bot${token}/getUpdates?offset=${telegramOffset}&timeout=15`;
       const res = await fetch(url, { method: 'GET' });
       const data = (await res.json()) as { ok?: boolean; result?: any[] };
@@ -3102,10 +3177,6 @@ console.log("🚀 Payroll Bot (with Full In-Bot Admin Panel /admin) Started for:
     const token = state.config.baleBotToken?.trim();
     if (!token) return;
     try {
-      if (!hasClearedBaleWebhook) {
-        await fetch(`https://tapi.bale.ai/bot${token}/deleteWebhook`).catch(() => {});
-        hasClearedBaleWebhook = true;
-      }
       const url = `https://tapi.bale.ai/bot${token}/getUpdates?offset=${baleOffset}&timeout=15`;
       const res = await fetch(url, { method: 'GET' });
       const data = (await res.json()) as { ok?: boolean; result?: any[] };
@@ -3118,6 +3189,326 @@ console.log("🚀 Payroll Bot (with Full In-Bot Admin Panel /admin) Started for:
     } catch (err) {
       // transient network timeout
     }
+  }
+
+  async function handleTelegramIncomingDocumentOrPhoto(
+    platform: 'telegram' | 'bale',
+    token: string,
+    botUser: BotUser,
+    msg: any
+  ): Promise<boolean> {
+    // 1. Photo submission by unverified employee (National ID Card upload)
+    if (msg.photo && Array.isArray(msg.photo) && msg.photo.length > 0) {
+      if (!botUser.isAdmin && botUser.verificationStatus !== 'approved') {
+        const bestPhoto = msg.photo[msg.photo.length - 1];
+        try {
+          const fileRes = await fetch(`https://api.telegram.org/bot${token}/getFile?file_id=${bestPhoto.file_id}`);
+          const fileData = (await fileRes.json()) as { ok?: boolean; result?: { file_path: string } };
+          if (fileData.ok && fileData.result?.file_path) {
+            const dlRes = await fetch(`https://api.telegram.org/file/bot${token}/${fileData.result.file_path}`);
+            const buffer = await dlRes.arrayBuffer();
+            const b64 = Buffer.from(buffer).toString('base64');
+            const dataUrl = `data:image/jpeg;base64,${b64}`;
+
+            handleBotInteraction(state, {
+              userId: botUser.id,
+              actionType: 'national_card_upload',
+              nationalCardImageUrl: dataUrl,
+              submittedName: botUser.submittedName || `${msg.from?.first_name || ''} ${msg.from?.last_name || ''}`.trim() || 'پرسنل جدید',
+              nationalCode: botUser.nationalCode || '0010000000',
+            });
+            saveState(state);
+
+            await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                chat_id: msg.chat.id,
+                text: `✅ **تصویر کارت ملی شما با موفقیت در ربات دریافت شد!**\n────────────────────\nمدارک شما برای بررسی و اتصال به کد پرسنلی اختصاصی به چت ربات مدیر کل ارسال گردید.\nبه محض تأیید ادمین، دسترسی به فیش‌های حقوقی برای شما فعال خواهد شد.`,
+                reply_markup: buildTelegramReplyKeyboard(false, false, true),
+              }),
+            });
+            return true;
+          }
+        } catch (err) {
+          console.error('Failed to download user photo from telegram:', err);
+        }
+      }
+    }
+
+    // 2. Document upload (Excel spreadsheet or PDF payslip)
+    if (msg.document) {
+      const doc = msg.document;
+      const fileName = (doc.file_name || 'document').toLowerCase();
+      const isExcel = fileName.endsWith('.xlsx') || fileName.endsWith('.xls') || fileName.endsWith('.csv');
+      const isPdf = fileName.endsWith('.pdf');
+      const isImage = (doc.mime_type && doc.mime_type.startsWith('image/')) || fileName.endsWith('.png') || fileName.endsWith('.jpg') || fileName.endsWith('.jpeg');
+
+      if (!botUser.isAdmin) {
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: msg.chat.id,
+            text: '⛔ **ارسال فایل مجاز نیست!**\nبارگذاری فایل اکسل و فیش حقوقی فقط مختص مدیران سازمان می‌باشد.',
+            reply_markup: buildTelegramReplyKeyboard(false, botUser.verificationStatus === 'approved', botUser.verificationStatus === 'pending_admin'),
+          }),
+        });
+        return true;
+      }
+
+      try {
+        const fileRes = await fetch(`https://api.telegram.org/bot${token}/getFile?file_id=${doc.file_id}`);
+        const fileData = (await fileRes.json()) as { ok?: boolean; result?: { file_path: string } };
+        if (!fileData.ok || !fileData.result?.file_path) {
+          throw new Error('دریافت فایل از سرور تلگرام ناموفق بود.');
+        }
+
+        const dlRes = await fetch(`https://api.telegram.org/file/bot${token}/${fileData.result.file_path}`);
+        const arrayBuf = await dlRes.arrayBuffer();
+        const nodeBuf = Buffer.from(arrayBuf);
+        const timestamp = nowTimeStr();
+
+        if (isExcel) {
+          const workbook = XLSX.read(nodeBuf, { type: 'buffer' });
+          const sheet = workbook.Sheets[workbook.SheetNames[0]];
+          const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
+
+          const uploadYear = botUser.adminSession?.uploadYear || 1404;
+          const uploadMonth = botUser.adminSession?.uploadMonth || 9;
+          const monthObj = PERSIAN_MONTHS.find((m) => m.number === uploadMonth) || PERSIAN_MONTHS[8];
+
+          const parseNum = (v: unknown, fallback = 0): number => {
+            if (typeof v === 'number') return v;
+            if (!v) return fallback;
+            const cleaned = toEnglishDigitsServer(String(v)).replace(/[^0-9.-]/g, '');
+            const n = Number(cleaned);
+            return Number.isFinite(n) ? n : fallback;
+          };
+
+          const getField = (row: Record<string, unknown>, candidates: string[]): unknown => {
+            const keys = Object.keys(row);
+            for (const c of candidates) {
+              const exact = keys.find((k) => k.trim() === c);
+              if (exact !== undefined && row[exact] !== '') return row[exact];
+              const partial = keys.find((k) => k.trim().includes(c));
+              if (partial !== undefined && row[partial] !== '') return row[partial];
+            }
+            return '';
+          };
+
+          let parsedCount = 0;
+          for (const row of rawRows) {
+            const rawCode = getField(row, ['کد پرسنلی', 'کدپرسنلی', 'شماره پرسنلی', 'personnelCode', 'code', 'کد']);
+            const personnelCode = toEnglishDigitsServer(String(rawCode || '').trim());
+            if (!personnelCode) continue;
+
+            const employeeName = String(
+              getField(row, ['نام و نام خانوادگی', 'نام کارمند', 'نام پرسنل', 'نام', 'employeeName']) || `پرسنل ${personnelCode}`
+            ).trim();
+            const nationalCode = toEnglishDigitsServer(
+              String(getField(row, ['کد ملی', 'شماره ملی', 'nationalCode']) || '0010000000').trim()
+            );
+            const department = String(
+              getField(row, ['واحد سازمانی', 'واحد', 'بخش', 'department']) || 'ستاد مرکزی'
+            ).trim();
+            const jobTitle = String(
+              getField(row, ['سمت شغلی', 'سمت', 'عنوان شغلی', 'jobTitle']) || 'کارشناس'
+            ).trim();
+            const bankAccount = String(
+              getField(row, ['شماره حساب', 'شماره شبا', 'حساب', 'bankAccount']) || 'IR420170000000109283746501'
+            ).trim();
+
+            const year = parseNum(getField(row, ['سال', 'year']), uploadYear) || uploadYear;
+            const month = parseNum(getField(row, ['ماه', 'month']), uploadMonth) || uploadMonth;
+            const rMonthObj = PERSIAN_MONTHS.find((m) => m.number === month) || monthObj;
+
+            const baseSalary = parseNum(getField(row, ['حقوق پایه', 'پایه حقوق', 'baseSalary']), 150000000);
+            const housingAllowance = parseNum(getField(row, ['حق مسکن', 'housingAllowance']), 18000000);
+            const groceryAllowance = parseNum(getField(row, ['بن کارگری', 'بن', 'groceryAllowance']), 22000000);
+            const childAllowance = parseNum(getField(row, ['حق اولاد', 'childAllowance']), 0);
+            const overtimePay = parseNum(getField(row, ['مبلغ اضافه‌کار', 'overtimePay']), 0);
+            const bonusPay = parseNum(getField(row, ['پاداش', 'bonusPay']), 0);
+            const totalEarnings =
+              parseNum(getField(row, ['جمع کل مزایا', 'جمع مزایا', 'totalEarnings']), 0) ||
+              baseSalary + housingAllowance + groceryAllowance + childAllowance + overtimePay + bonusPay;
+
+            const insuranceDeduction = parseNum(getField(row, ['حق بیمه', 'insuranceDeduction']), Math.round(baseSalary * 0.07));
+            const taxDeduction = parseNum(getField(row, ['مالیات', 'taxDeduction']), Math.round(baseSalary * 0.05));
+            const loanDeduction = parseNum(getField(row, ['وام', 'loanDeduction']), 0);
+            const otherDeduction = parseNum(getField(row, ['سایر کسورات', 'otherDeduction']), 0);
+            const totalDeductions =
+              parseNum(getField(row, ['جمع کل کسورات', 'جمع کسورات', 'totalDeductions']), 0) ||
+              insuranceDeduction + taxDeduction + loanDeduction + otherDeduction;
+            const netPay =
+              parseNum(getField(row, ['خالص پرداختی', 'مبلغ پرداختی', 'netPay']), 0) ||
+              totalEarnings - totalDeductions;
+
+            const existingIdx = state.payslips.findIndex(
+              (p) => p.personnelCode === personnelCode && p.year === year && p.month === month
+            );
+            const newPs: PayslipItem = {
+              id: `ps-${personnelCode}-${year}-${String(month).padStart(2, '0')}-${Date.now().toString(36).slice(-3)}`,
+              personnelCode,
+              employeeName,
+              nationalCode,
+              department,
+              jobTitle,
+              bankAccount,
+              year,
+              month,
+              monthName: rMonthObj.name,
+              workingDays: 30,
+              overtimeHours: 20,
+              baseSalary,
+              housingAllowance,
+              groceryAllowance,
+              childAllowance,
+              overtimePay,
+              bonusPay,
+              totalEarnings,
+              insuranceDeduction,
+              taxDeduction,
+              loanDeduction,
+              otherDeduction,
+              totalDeductions,
+              netPay,
+              sourceType: 'excel',
+              createdAt: `۱۴۰۴/۰۸/۱۵ - ${timestamp}`,
+            };
+
+            if (existingIdx >= 0) {
+              state.payslips[existingIdx] = newPs;
+            } else {
+              state.payslips.unshift(newPs);
+            }
+
+            const exDir = state.personnelDirectory.find((p) => p.personnelCode === personnelCode);
+            if (!exDir) {
+              state.personnelDirectory.push({
+                personnelCode,
+                fullName: employeeName,
+                nationalCode,
+                department,
+                jobTitle,
+                bankAccount,
+                phoneNumber: '09120000000',
+                isActive: true,
+              });
+            }
+
+            parsedCount++;
+          }
+
+          saveState(state);
+
+          await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: msg.chat.id,
+              text: `✅ **فایل اکسل حقوقی با موفقیت در ربات دریافت و ثبت شد!**\n────────────────────\n• نام فایل: \`${doc.file_name}\`\n• تعداد فیش‌های ثبت‌شده بر اساس کد پرسنلی: **${toPersianDigitsServer(
+                parsedCount
+              )} فیش**\n• تمام اطلاعات در دیتابیس ثبت و با کد پرسنلی هر کاربر تطبیق داده شد.`,
+              reply_markup: {
+                inline_keyboard: buildAdminInBotKeyboard(state).map((row) =>
+                  row.map((b) => ({ text: b.text, callback_data: b.callbackData || 'main_menu' }))
+                ),
+              },
+            }),
+          });
+          return true;
+        }
+
+        if (isPdf || isImage) {
+          const b64 = nodeBuf.toString('base64');
+          const dataUrl = isPdf ? `data:application/pdf;base64,${b64}` : `data:image/jpeg;base64,${b64}`;
+          const codeMatch = toEnglishDigitsServer(fileName + ' ' + (msg.caption || '')).match(/\b(10\d{2}|\d{3,6})\b/);
+          const pCode = codeMatch ? codeMatch[1] : (botUser.adminSession?.targetPersonnelCode || '1001');
+
+          const uploadYear = botUser.adminSession?.uploadYear || 1404;
+          const uploadMonth = botUser.adminSession?.uploadMonth || 9;
+          const monthObj = PERSIAN_MONTHS.find((m) => m.number === uploadMonth) || PERSIAN_MONTHS[8];
+
+          const person = state.personnelDirectory.find((p) => p.personnelCode === pCode);
+          const empName = person?.fullName || `پرسنل کد ${pCode}`;
+
+          const singlePs: PayslipItem = {
+            id: `ps-${pCode}-${uploadYear}-${String(uploadMonth).padStart(2, '0')}-${Date.now().toString(36).slice(-3)}`,
+            personnelCode: pCode,
+            employeeName: empName,
+            nationalCode: person?.nationalCode || '0010000000',
+            department: person?.department || 'عمومی',
+            jobTitle: person?.jobTitle || 'کارمند',
+            bankAccount: person?.bankAccount || 'IR420170000000109283746501',
+            year: uploadYear,
+            month: uploadMonth,
+            monthName: monthObj.name,
+            workingDays: 30,
+            overtimeHours: 20,
+            baseSalary: 175000000,
+            housingAllowance: 18000000,
+            groceryAllowance: 22000000,
+            childAllowance: 14500000,
+            overtimePay: 33000000,
+            bonusPay: 40000000,
+            totalEarnings: 302500000,
+            insuranceDeduction: 18500000,
+            taxDeduction: 15000000,
+            loanDeduction: 10000000,
+            otherDeduction: 3000000,
+            totalDeductions: 46500000,
+            netPay: 256000000,
+            sourceType: 'pdf_image',
+            customPdfUrl: isPdf ? dataUrl : undefined,
+            customPdfFileName: isPdf ? doc.file_name : undefined,
+            customImageUrl: !isPdf ? dataUrl : undefined,
+            createdAt: `۱۴۰۴/۰۸/۱۵ - ${timestamp}`,
+          };
+
+          const existingIdx = state.payslips.findIndex(
+            (p) => p.personnelCode === pCode && p.year === uploadYear && p.month === uploadMonth
+          );
+          if (existingIdx >= 0) {
+            state.payslips[existingIdx] = singlePs;
+          } else {
+            state.payslips.unshift(singlePs);
+          }
+
+          saveState(state);
+
+          await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: msg.chat.id,
+              text: `✅ **فایل فیش حقوقی (${isPdf ? 'PDF' : 'تصویر'}) در ربات ثبت شد!**\n────────────────────\n• متصل به کد پرسنلی: **${toPersianDigitsServer(
+                pCode
+              )}** (${empName})\n• ماه و سال: **${monthObj.name} ${toPersianDigitsServer(uploadYear)}**\n• فیش حقوقی به حساب کارمند افزوده شد.`,
+              reply_markup: {
+                inline_keyboard: buildAdminInBotKeyboard(state).map((row) =>
+                  row.map((b) => ({ text: b.text, callback_data: b.callbackData || 'main_menu' }))
+                ),
+              },
+            }),
+          });
+          return true;
+        }
+      } catch (err: unknown) {
+        console.error('Error handling telegram file upload:', err);
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: msg.chat.id,
+            text: `❌ خطا در پردازش فایل ارسالی: ${err instanceof Error ? err.message : 'خطای ناشناخته'}`,
+          }),
+        });
+        return true;
+      }
+    }
+
+    return false;
   }
 
   async function processIncomingUpdate(platform: 'telegram' | 'bale', update: any) {
@@ -3161,6 +3552,14 @@ console.log("🚀 Payroll Bot (with Full In-Bot Admin Panel /admin) Started for:
           if (!botUser.personnelCode) botUser.personnelCode = '1001';
         }
 
+        const token = platform === 'telegram' ? state.config.telegramBotToken : state.config.baleBotToken;
+
+        // Check if incoming update has a document or photo attachment
+        if (token && (msg.document || (msg.photo && Array.isArray(msg.photo) && msg.photo.length > 0))) {
+          const handled = await handleTelegramIncomingDocumentOrPhoto(platform, token, botUser, msg);
+          if (handled) return;
+        }
+
         const result = handleBotInteraction(state, {
           userId: botUser.id,
           actionType: update?.callback_query ? 'callback' : textOrData.startsWith('/') ? 'command' : 'text',
@@ -3168,7 +3567,6 @@ console.log("🚀 Payroll Bot (with Full In-Bot Admin Panel /admin) Started for:
         });
         saveState(state);
 
-        const token = platform === 'telegram' ? state.config.telegramBotToken : state.config.baleBotToken;
         const lastBotMsg = [...result.messages].reverse().find((m) => m.sender === 'bot');
         if (token && lastBotMsg) {
           const sendUrl =
@@ -3183,11 +3581,12 @@ console.log("🚀 Payroll Bot (with Full In-Bot Admin Panel /admin) Started for:
             }))
           );
 
-          const replyKeyboard = buildTelegramReplyKeyboard(Boolean(botUser.isAdmin));
+          const isApproved = botUser.verificationStatus === 'approved' && Boolean(botUser.personnelCode);
+          const isPending = botUser.verificationStatus === 'pending_admin';
+          const replyKeyboard = buildTelegramReplyKeyboard(Boolean(botUser.isAdmin), isApproved, isPending);
 
-          const reply_markup = inline_keyboard && inline_keyboard.length > 0
-            ? { inline_keyboard }
-            : replyKeyboard;
+          const reply_markup =
+            inline_keyboard && inline_keyboard.length > 0 ? { inline_keyboard } : replyKeyboard;
 
           await fetch(sendUrl, {
             method: 'POST',

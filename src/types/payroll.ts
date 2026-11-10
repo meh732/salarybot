@@ -91,6 +91,7 @@ export type AdminBotFlowStep =
 export interface AdminBotSession {
   step: AdminBotFlowStep;
   targetUserId?: string;
+  targetPersonnelCode?: string;
   broadcastTargetFilter?: string;
   uploadYear?: number;
   uploadMonth?: number;
@@ -127,6 +128,7 @@ export interface PersonnelRecord {
   jobTitle: string;
   bankAccount: string;
   phoneNumber: string;
+  isActive?: boolean;
 }
 
 export interface BotConfig {
