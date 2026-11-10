@@ -91,108 +91,245 @@ export function generateNationalCardSvgDataUrl(
 
 /**
  * Generates an official, high-resolution SVG DataURL of a Payslip (`تصویر فیش حقوقی`)
- * so that every payslip has an instant crystal-clear visual image inside the bot chat.
+ * styled after the official RSS Royal Sanat Samaneh (رویال صنعت سامانه) corporate format.
  */
-export function generatePayslipSvgDataUrl(payslip: PayslipItem, orgName = 'هلدینگ صنعتی و فناوری پارس'): string {
+export function generatePayslipSvgDataUrl(payslip: PayslipItem, orgName = 'رویال صنعت سامانه'): string {
   if (payslip.customImageUrl && payslip.customImageUrl.startsWith('data:image/')) {
     return payslip.customImageUrl;
   }
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="860" height="620" viewBox="0 0 860 620" direction="rtl">
-    <defs>
-      <linearGradient id="topHeader" x1="0%" y1="0%" x2="100%" y2="0%">
-        <stop offset="0%" stop-color="#0f172a"/>
-        <stop offset="50%" stop-color="#1e293b"/>
-        <stop offset="100%" stop-color="#0f766e"/>
-      </linearGradient>
-      <linearGradient id="netBanner" x1="0%" y1="0%" x2="100%" y2="0%">
-        <stop offset="0%" stop-color="#065f46"/>
-        <stop offset="100%" stop-color="#047857"/>
-      </linearGradient>
-    </defs>
+  const cleanOrg = orgName.includes('رویال') ? orgName : `شرکت ${orgName}`;
 
-    <!-- Background -->
-    <rect width="860" height="620" rx="18" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2"/>
-    
-    <!-- Watermark -->
-    <text x="430" y="350" font-family="Vazirmatn, Tahoma, sans-serif" font-size="58" font-weight="bold" fill="#0f172a" fill-opacity="0.035" text-anchor="middle" transform="rotate(-18 430 350)">${orgName}</text>
+  // Calculated / Fallback values matching RSS template format
+  const specPay = payslip.specializationPay ?? Math.round(payslip.baseSalary * 0.56);
+  const marAllowance = payslip.maritalAllowance ?? 5000000;
+  const senPay = payslip.seniorityPay ?? 34317060;
+  const holPay = payslip.holidayPay ?? Math.round(payslip.overtimePay * 0.5);
+  const extDayPay = payslip.extraDayPay ?? Math.round(payslip.baseSalary / 30);
 
-    <!-- Header -->
-    <path d="M 0 18 Q 0 0 18 0 L 842 0 Q 860 0 860 18 L 860 92 L 0 92 Z" fill="url(#topHeader)"/>
-    <text x="430" y="38" font-family="Vazirmatn, Tahoma, sans-serif" font-size="22" font-weight="bold" fill="#ffffff" text-anchor="middle">${orgName}</text>
-    <text x="430" y="70" font-family="Vazirmatn, Tahoma, sans-serif" font-size="15" fill="#5eead4" text-anchor="middle">صورتحساب رسمی حقوق و مزایا — ${payslip.monthName} ماه سال ${toPersianDigits(payslip.year)}</text>
-    <text x="790" y="42" font-family="Vazirmatn, Tahoma, sans-serif" font-size="13" fill="#cbd5e1" text-anchor="right">کد پرسنلی: ${toPersianDigits(payslip.personnelCode)}</text>
-    <text x="790" y="68" font-family="Vazirmatn, Tahoma, sans-serif" font-size="12" fill="#94a3b8" text-anchor="right">شناسه سند: #${payslip.id.slice(-6).toUpperCase()}</text>
+  const totalEarn =
+    payslip.totalEarnings ||
+    payslip.baseSalary +
+      specPay +
+      payslip.groceryAllowance +
+      payslip.housingAllowance +
+      marAllowance +
+      payslip.childAllowance +
+      senPay +
+      (payslip.missionPay || 0) +
+      payslip.overtimePay +
+      holPay +
+      (payslip.bonusPay || 0) +
+      extDayPay;
 
-    <!-- Employee Info Strip -->
-    <rect x="24" y="108" width="812" height="82" rx="12" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5"/>
-    <g font-family="Vazirmatn, Tahoma, sans-serif" font-size="14" fill="#334155">
-      <text x="815" y="138" text-anchor="right" font-weight="bold">نام و نام خانوادگی: <tspan fill="#0f172a">${payslip.employeeName}</tspan></text>
-      <text x="530" y="138" text-anchor="right" font-weight="bold">کد پرسنلی: <tspan fill="#0284c7">${toPersianDigits(payslip.personnelCode)}</tspan></text>
-      <text x="290" y="138" text-anchor="right" font-weight="bold">کد ملی: <tspan fill="#0f172a">${toPersianDigits(payslip.nationalCode)}</tspan></text>
+  const suppIns = payslip.supplementaryInsurance ?? 6820000;
+  const lunchDed = payslip.lunchDeduction ?? 30000000;
 
-      <text x="815" y="170" text-anchor="right" font-weight="bold">واحد سازمانی: <tspan fill="#0f172a">${payslip.department}</tspan></text>
-      <text x="530" y="170" text-anchor="right" font-weight="bold">سمت: <tspan fill="#0f172a">${payslip.jobTitle}</tspan></text>
-      <text x="290" y="170" text-anchor="right" font-weight="bold">کارکرد / اضافه‌کار: <tspan fill="#0f172a">${toPersianDigits(payslip.workingDays)} روز / ${toPersianDigits(payslip.overtimeHours)} ساعت</tspan></text>
+  const totalDed =
+    payslip.totalDeductions ||
+    payslip.insuranceDeduction +
+      suppIns +
+      payslip.taxDeduction +
+      payslip.loanDeduction +
+      lunchDed +
+      payslip.otherDeduction;
+
+  const netPay = payslip.netPay || Math.max(0, totalEarn - totalDed);
+
+  const otStr = payslip.overtimeHoursStr || (payslip.overtimeHours ? `${toPersianDigits(payslip.overtimeHours)}:33:00` : '-');
+  const holStr = payslip.holidayHoursStr || (holPay ? '44:46:00' : '-');
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="740" viewBox="0 0 900 740" direction="rtl">
+    <style>
+      .t-main { font-family: Vazirmatn, Tahoma, sans-serif; }
+      .t-bold { font-weight: bold; }
+      .bg-head { fill: #f8fafc; }
+      .border-line { stroke: #000000; stroke-width: 1.5; }
+      .border-thin { stroke: #475569; stroke-width: 1; }
+    </style>
+
+    <!-- Background Outer -->
+    <rect width="900" height="740" fill="#ffffff"/>
+    <rect x="20" y="20" width="860" height="700" fill="#ffffff" class="border-line"/>
+
+    <!-- Top Company Header -->
+    <g class="t-main" fill="#000000">
+      <!-- Logo RSS on Right -->
+      <g transform="translate(40, 35)">
+        <text x="0" y="20" font-size="22" font-weight="900" fill="#1e3a8a">RSS</text>
+        <text x="0" y="32" font-size="9" font-weight="bold" fill="#3b82f6">Royal Sanat Samaneh</text>
+      </g>
+
+      <!-- Center Title -->
+      <text x="450" y="55" font-size="20" font-weight="bold" text-anchor="middle">فیش حقوقی پرسنل ${cleanOrg}</text>
+      
+      <!-- Subheaders -->
+      <text x="40" y="92" font-size="14" font-weight="bold">${payslip.monthName} ${toPersianDigits(payslip.year)}</text>
+      <text x="840" y="70" font-size="14" text-anchor="end">نام و نام خانوادگی : <tspan font-weight="bold">${payslip.employeeName}</tspan></text>
+      <text x="840" y="92" font-size="14" text-anchor="end">شماره پرسنلی <tspan font-weight="bold">${toPersianDigits(payslip.personnelCode)}</tspan></text>
     </g>
 
-    <!-- Two Columns: Earnings (Right) & Deductions (Left) -->
-    <!-- Right Box: Earnings -->
-    <rect x="440" y="206" width="396" height="295" rx="12" fill="#ffffff" stroke="#bbf7d0" stroke-width="1.5"/>
-    <rect x="440" y="206" width="396" height="40" rx="10" fill="#dcfce7"/>
-    <text x="638" y="232" font-family="Vazirmatn, Tahoma, sans-serif" font-size="15" font-weight="bold" fill="#065f46" text-anchor="middle">شرح حقوق و مزایا (ریال)</text>
+    <!-- Main Table Container -->
+    <rect x="35" y="108" width="830" height="540" fill="none" class="border-line"/>
 
-    <g font-family="Vazirmatn, Tahoma, sans-serif" font-size="14" fill="#1e293b">
-      <text x="816" y="274" text-anchor="right">حقوق پایه ماهانه</text>
-      <text x="460" y="274" text-anchor="left" font-weight="bold">${formatRial(payslip.baseSalary)}</text>
+    <!-- Header Row (Deductions | Earnings | Work Metrics) -->
+    <rect x="35" y="108" width="830" height="35" fill="#f1f5f9" class="border-line"/>
 
-      <text x="816" y="308" text-anchor="right">حق مسکن و خواربار</text>
-      <text x="460" y="308" text-anchor="left" font-weight="bold">${formatRial(payslip.housingAllowance + payslip.groceryAllowance)}</text>
+    <!-- Vertical Dividers for Header -->
+    <line x1="280" y1="108" x2="280" y2="648" class="border-line"/>
+    <line x1="660" y1="108" x2="660" y2="648" class="border-line"/>
 
-      <text x="816" y="342" text-anchor="right">حق اولاد و عائله‌مندی</text>
-      <text x="460" y="342" text-anchor="left" font-weight="bold">${formatRial(payslip.childAllowance)}</text>
-
-      <text x="816" y="376" text-anchor="right">فوق‌العاده اضافه‌کاری (${toPersianDigits(payslip.overtimeHours)} ساعت)</text>
-      <text x="460" y="376" text-anchor="left" font-weight="bold">${formatRial(payslip.overtimePay)}</text>
-
-      <text x="816" y="410" text-anchor="right">پاداش بهره‌وری و کارانه</text>
-      <text x="460" y="410" text-anchor="left" font-weight="bold">${formatRial(payslip.bonusPay)}</text>
-
-      <line x1="456" y1="442" x2="820" y2="442" stroke="#bbf7d0" stroke-width="1.5"/>
-      <text x="816" y="476" text-anchor="right" font-weight="bold" fill="#065f46">جمع کل حقوق و مزایا</text>
-      <text x="460" y="476" text-anchor="left" font-size="16" font-weight="bold" fill="#065f46">${formatRial(payslip.totalEarnings)}</text>
+    <g class="t-main" font-size="14" font-weight="bold" fill="#000000" text-anchor="middle">
+      <text x="157" y="131">کسورات</text>
+      <text x="470" y="131">حقوق و دستمزد ( ریال )</text>
     </g>
 
-    <!-- Left Box: Deductions -->
-    <rect x="24" y="206" width="396" height="295" rx="12" fill="#ffffff" stroke="#fecdd3" stroke-width="1.5"/>
-    <rect x="24" y="206" width="396" height="40" rx="10" fill="#ffe4e6"/>
-    <text x="222" y="232" font-family="Vazirmatn, Tahoma, sans-serif" font-size="15" font-weight="bold" fill="#9f1239" text-anchor="middle">شرح کسورات قانونی و توافقی (ریال)</text>
+    <!-- Table Rows Structure -->
+    <!-- Column 1: Deductions (Left 35..280) -->
+    <g class="t-main" font-size="12" fill="#000000">
+      <!-- Item 1: بیمه تامین اجتماعی -->
+      <text x="270" y="170" text-anchor="end">بیمه تامین اجتماعی</text>
+      <text x="150" y="170" text-anchor="end" class="t-bold">${toPersianDigits(formatRial(payslip.insuranceDeduction).replace(' ریال',''))}</text>
 
-    <g font-family="Vazirmatn, Tahoma, sans-serif" font-size="14" fill="#1e293b">
-      <text x="400" y="274" text-anchor="right">حق بیمه تأمین اجتماعی (سهم کارمند ۷٪)</text>
-      <text x="44" y="274" text-anchor="left" font-weight="bold">${formatRial(payslip.insuranceDeduction)}</text>
+      <!-- Item 2: بیمه تکمیلی -->
+      <text x="270" y="200" text-anchor="end">بیمه تکمیلی</text>
+      <text x="150" y="200" text-anchor="end" class="t-bold">${toPersianDigits(formatRial(suppIns).replace(' ریال',''))}</text>
 
-      <text x="400" y="308" text-anchor="right">مالیات بر درآمد حقوق</text>
-      <text x="44" y="308" text-anchor="left" font-weight="bold">${formatRial(payslip.taxDeduction)}</text>
+      <!-- Item 3: مالیات حقوق -->
+      <text x="270" y="230" text-anchor="end">مالیات حقوق</text>
+      <text x="150" y="230" text-anchor="end">${payslip.taxDeduction > 0 ? toPersianDigits(formatRial(payslip.taxDeduction).replace(' ریال','')) : '-'}</text>
 
-      <text x="400" y="342" text-anchor="right">قسط وام صندوق و مساعده</text>
-      <text x="44" y="342" text-anchor="left" font-weight="bold">${formatRial(payslip.loanDeduction)}</text>
+      <!-- Item 4: قسط وام -->
+      <text x="270" y="260" text-anchor="end">قسط وام</text>
+      <text x="150" y="260" text-anchor="end">${payslip.loanDeduction > 0 ? toPersianDigits(formatRial(payslip.loanDeduction).replace(' ریال','')) : '-'}</text>
 
-      <text x="400" y="376" text-anchor="right">سایر کسورات (بیمه تکمیلی / رفاهی)</text>
-      <text x="44" y="376" text-anchor="left" font-weight="bold">${formatRial(payslip.otherDeduction)}</text>
+      <!-- Item 5: کسر کار -->
+      <text x="270" y="290" text-anchor="end">کسر کار</text>
+      <text x="150" y="290" text-anchor="end">-</text>
 
-      <text x="400" y="410" text-anchor="right">شماره حساب واریزی</text>
-      <text x="44" y="410" text-anchor="left" font-weight="bold" fill="#475569">${toPersianDigits(payslip.bankAccount)}</text>
+      <!-- Item 6: مساعده -->
+      <text x="270" y="320" text-anchor="end">مساعده</text>
+      <text x="150" y="320" text-anchor="end">-</text>
 
-      <line x1="40" y1="442" x2="404" y2="442" stroke="#fecdd3" stroke-width="1.5"/>
-      <text x="400" y="476" text-anchor="right" font-weight="bold" fill="#9f1239">جمع کل کسورات</text>
-      <text x="44" y="476" text-anchor="left" font-size="16" font-weight="bold" fill="#9f1239">${formatRial(payslip.totalDeductions)}</text>
+      <!-- Item 7: ناهار -->
+      <text x="270" y="350" text-anchor="end">ناهار</text>
+      <text x="150" y="350" text-anchor="end" class="t-bold">${toPersianDigits(formatRial(lunchDed).replace(' ریال',''))}</text>
     </g>
 
-    <!-- Bottom Net Pay Banner -->
-    <rect x="24" y="518" width="812" height="76" rx="14" fill="url(#netBanner)"/>
-    <text x="805" y="563" font-family="Vazirmatn, Tahoma, sans-serif" font-size="20" font-weight="bold" fill="#ffffff" text-anchor="right">خالص پرداختی قابل واریز به حساب پرسنل:</text>
-    <text x="48" y="564" font-family="Vazirmatn, Tahoma, sans-serif" font-size="24" font-weight="bold" fill="#a7f3d0" text-anchor="left">${formatRial(payslip.netPay)}</text>
+    <!-- Subtotal Deductions Row (Bottom Left) -->
+    <line x1="35" y1="612" x2="280" y2="612" class="border-line"/>
+    <g class="t-main" font-size="14" font-weight="bold" fill="#000000">
+      <text x="160" y="635" text-anchor="end">${toPersianDigits(formatRial(totalDed).replace(' ریال',''))}</text>
+    </g>
+
+    <!-- Column 2: Earnings & Allowances (Middle 280..660) -->
+    <g class="t-main" font-size="12" fill="#000000">
+      <!-- Row 1: پایه -->
+      <text x="645" y="170" text-anchor="end">پایه</text>
+      <text x="450" y="170" text-anchor="end" class="t-bold">${toPersianDigits(formatRial(payslip.baseSalary).replace(' ریال',''))}</text>
+
+      <!-- Row 2: حق تخصص -->
+      <text x="645" y="200" text-anchor="end">حق تخصص</text>
+      <text x="450" y="200" text-anchor="end" class="t-bold">${toPersianDigits(formatRial(specPay).replace(' ریال',''))}</text>
+
+      <!-- Row 3: حق بن -->
+      <text x="645" y="230" text-anchor="end">حق بن</text>
+      <text x="450" y="230" text-anchor="end" class="t-bold">${toPersianDigits(formatRial(payslip.groceryAllowance).replace(' ریال',''))}</text>
+
+      <!-- Row 4: حق مسکن -->
+      <text x="645" y="260" text-anchor="end">حق مسکن</text>
+      <text x="450" y="260" text-anchor="end" class="t-bold">${toPersianDigits(formatRial(payslip.housingAllowance).replace(' ریال',''))}</text>
+
+      <!-- Row 5: حق تاهل -->
+      <text x="645" y="290" text-anchor="end">حق تاهل</text>
+      <text x="450" y="290" text-anchor="end" class="t-bold">${toPersianDigits(formatRial(marAllowance).replace(' ریال',''))}</text>
+
+      <!-- Row 6: حق اولاد -->
+      <text x="645" y="320" text-anchor="end">حق اولاد</text>
+      <text x="450" y="320" text-anchor="end" class="t-bold">${toPersianDigits(formatRial(payslip.childAllowance).replace(' ریال',''))}</text>
+
+      <!-- Row 7: پایه سنوات -->
+      <text x="645" y="350" text-anchor="end">پایه سنوات</text>
+      <text x="450" y="350" text-anchor="end" class="t-bold">${toPersianDigits(formatRial(senPay).replace(' ریال',''))}</text>
+
+      <!-- Row 8: حق ماموریت -->
+      <text x="645" y="380" text-anchor="end">حق ماموریت</text>
+      <text x="450" y="380" text-anchor="end">${payslip.missionPay ? toPersianDigits(formatRial(payslip.missionPay).replace(' ریال','')) : '-'}</text>
+
+      <!-- Row 9: اضافه کار -->
+      <text x="645" y="410" text-anchor="end">اضافه کار</text>
+      <text x="450" y="410" text-anchor="end" class="t-bold">${toPersianDigits(formatRial(payslip.overtimePay).replace(' ریال',''))}</text>
+
+      <!-- Row 10: تعطیل کاری -->
+      <text x="645" y="440" text-anchor="end">تعطیل کاری</text>
+      <text x="450" y="440" text-anchor="end" class="t-bold">${toPersianDigits(formatRial(holPay).replace(' ریال',''))}</text>
+
+      <!-- Row 11: معوقه -->
+      <text x="645" y="470" text-anchor="end">معوقه</text>
+      <text x="450" y="470" text-anchor="end">-</text>
+
+      <!-- Row 12: کارانه -->
+      <text x="645" y="500" text-anchor="end">کارانه</text>
+      <text x="450" y="500" text-anchor="end">${payslip.bonusPay > 0 ? toPersianDigits(formatRial(payslip.bonusPay).replace(' ریال','')) : '-'}</text>
+
+      <!-- Row 13: یک روز اضافه ماه -->
+      <text x="645" y="530" text-anchor="end">یک روز اضافه ماه</text>
+      <text x="450" y="530" text-anchor="end" class="t-bold">${toPersianDigits(formatRial(extDayPay).replace(' ریال',''))}</text>
+    </g>
+
+    <!-- Subtotal Earnings Row (Bottom Middle) -->
+    <line x1="280" y1="612" x2="660" y2="612" class="border-line"/>
+    <g class="t-main" font-size="14" font-weight="bold" fill="#000000">
+      <text x="470" y="635" text-anchor="end">${toPersianDigits(formatRial(totalEarn).replace(' ریال',''))}</text>
+    </g>
+
+    <!-- Column 3: Work Metrics (Right 660..865) -->
+    <!-- Grid Horizontal Lines inside Right Box -->
+    <line x1="660" y1="210" x2="865" y2="210" class="border-thin"/>
+    <line x1="660" y1="300" x2="865" y2="300" class="border-thin"/>
+    <line x1="660" y1="380" x2="865" y2="380" class="border-thin"/>
+    <line x1="660" y1="460" x2="865" y2="460" class="border-thin"/>
+    <line x1="660" y1="540" x2="865" y2="540" class="border-thin"/>
+
+    <g class="t-main" font-size="13" fill="#000000">
+      <!-- Section 1: کارکرد / روز -->
+      <text x="850" y="170" text-anchor="end">کارکرد / روز</text>
+      <text x="700" y="190" text-anchor="end" class="t-bold" font-size="14">${toPersianDigits(payslip.workingDays)}.0</text>
+
+      <!-- Section 2: اضافه کار -->
+      <text x="850" y="245" text-anchor="end">اضافه کار</text>
+      <text x="700" y="275" text-anchor="end" class="t-bold" font-size="13">${otStr}</text>
+
+      <!-- Section 3: ماموریت -->
+      <text x="850" y="335" text-anchor="end">ماموریت</text>
+
+      <!-- Section 4: کسر کار -->
+      <text x="850" y="415" text-anchor="end">کسر کار</text>
+
+      <!-- Section 5: تعطیل کاری -->
+      <text x="850" y="495" text-anchor="end">تعطیل کاری</text>
+      <text x="700" y="520" text-anchor="end" class="t-bold" font-size="13">${holStr}</text>
+
+      <!-- Section 6: مانده مرخصی (ساعت) -->
+      <text x="850" y="575" text-anchor="end">مانده مرخصی</text>
+      <text x="850" y="595" text-anchor="end">( ساعت)</text>
+    </g>
+
+    <!-- Bottom Net Pay Footer Bar (648..708) -->
+    <rect x="35" y="648" width="830" height="60" fill="#ffffff" class="border-line"/>
+
+    <g class="t-main" fill="#000000">
+      <!-- Left Logo inside Footer -->
+      <text x="55" y="682" font-size="18" font-weight="900" fill="#1e3a8a">RSS</text>
+      <text x="55" y="694" font-size="8" font-weight="bold" fill="#3b82f6">Royal Sanat Samaneh</text>
+
+      <!-- Center Unit -->
+      <text x="550" y="684" font-size="15" text-anchor="end">ریال</text>
+
+      <!-- Right Net Pay Value -->
+      <text x="730" y="686" font-size="20" font-weight="bold" text-anchor="end">${toPersianDigits(formatRial(netPay).replace(' ریال',''))}</text>
+      <text x="850" y="684" font-size="16" font-weight="bold" text-anchor="end">خالص پرداختی</text>
+    </g>
   </svg>`;
 
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
@@ -213,12 +350,12 @@ export async function downloadPayslipImage(payslip: PayslipItem, orgName?: strin
   });
 
   const canvas = document.createElement('canvas');
-  canvas.width = 1290;
-  canvas.height = 930;
+  canvas.width = 1350;
+  canvas.height = 1110;
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
 
-  ctx.fillStyle = '#f8fafc';
+  ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
@@ -232,10 +369,10 @@ export async function downloadPayslipImage(payslip: PayslipItem, orgName?: strin
 }
 
 /**
- * Generates a valid, standards-compliant PDF binary file (or downloads custom uploaded PDF)
- * and also opens a clean printable PDF view if desired.
+ * Generates a valid, high-fidelity PDF file matching the RSS Royal Sanat Samaneh corporate template format
+ * (or downloads custom uploaded PDF if provided).
  */
-export function downloadPayslipPdf(payslip: PayslipItem, orgName = 'هلدینگ صنعتی و فناوری پارس'): void {
+export function downloadPayslipPdf(payslip: PayslipItem, orgName = 'رویال صنعت سامانه'): void {
   // If a custom PDF DataURL was uploaded for this payslip, download it directly:
   if (payslip.customPdfUrl && payslip.customPdfUrl.startsWith('data:application/pdf')) {
     const a = document.createElement('a');
@@ -249,47 +386,76 @@ export function downloadPayslipPdf(payslip: PayslipItem, orgName = 'هلدینگ
     return;
   }
 
-  // Otherwise construct a real, valid PDF 1.4 file containing the official payslip summary and trigger download
+  // Generate an HTML print window with the exact corporate vector grid styling and trigger immediate PDF print/save
+  const svgDataUrl = generatePayslipSvgDataUrl(payslip, orgName);
+  const cleanOrg = orgName.includes('رویال') ? orgName : `شرکت ${orgName}`;
+
+  const printWindow = window.open('', '_blank');
+  if (printWindow) {
+    printWindow.document.write(`<!DOCTYPE html>
+<html dir="rtl" lang="fa">
+<head>
+  <meta charset="utf-8">
+  <title>فیش حقوقی ${payslip.employeeName} - ${payslip.monthName} ${payslip.year}</title>
+  <style>
+    @page { size: A4 portrait; margin: 10mm; }
+    body { margin: 0; padding: 0; background: #ffffff; font-family: Tahoma, Vazirmatn, sans-serif; text-align: center; }
+    .pdf-container { width: 100%; max-width: 800px; margin: 0 auto; padding: 10px; box-sizing: border-box; }
+    img { width: 100%; height: auto; display: block; border: 1px solid #000; }
+  </style>
+</head>
+<body>
+  <div class="pdf-container">
+    <img src="${svgDataUrl}" alt="فیش حقوقی پرسنل ${cleanOrg}" />
+  </div>
+  <script>
+    window.onload = function() {
+      setTimeout(function() {
+        window.print();
+      }, 500);
+    };
+  </script>
+</body>
+</html>`);
+    printWindow.document.close();
+    return;
+  }
+
+  // Fallback download trigger via printable Blob anchor
   const lines = [
-    `OFFICIAL PAYSLIP DOCUMENT - ${payslip.year}/${String(payslip.month).padStart(2, '0')}`,
+    `RSS ROYAL SANAT SAMANEH - PAYSLIP`,
     `------------------------------------------------------------`,
     `Personnel Code : ${payslip.personnelCode}`,
     `Employee Name  : ${payslip.employeeName}`,
-    `National ID    : ${payslip.nationalCode}`,
-    `Department     : ${payslip.department} - ${payslip.jobTitle}`,
-    `Bank Account   : ${payslip.bankAccount}`,
-    `Period         : Year ${payslip.year} - Month ${payslip.month} (${payslip.monthName})`,
-    `Working Days   : ${payslip.workingDays} days | Overtime: ${payslip.overtimeHours} hrs`,
+    `National Code  : ${payslip.nationalCode}`,
+    `Month / Year   : ${payslip.monthName} ${payslip.year}`,
+    `Working Days   : ${payslip.workingDays} days`,
     `------------------------------------------------------------`,
     `EARNINGS (RIAL):`,
-    `  Base Salary        : ${payslip.baseSalary.toLocaleString('en-US')} Rial`,
-    `  Housing & Grocery  : ${(payslip.housingAllowance + payslip.groceryAllowance).toLocaleString('en-US')} Rial`,
-    `  Family Allowance   : ${payslip.childAllowance.toLocaleString('en-US')} Rial`,
-    `  Overtime Pay       : ${payslip.overtimePay.toLocaleString('en-US')} Rial`,
-    `  Performance Bonus  : ${payslip.bonusPay.toLocaleString('en-US')} Rial`,
-    `  TOTAL EARNINGS     : ${payslip.totalEarnings.toLocaleString('en-US')} Rial`,
+    `  Base Salary        : ${payslip.baseSalary.toLocaleString('fa-IR')} Rial`,
+    `  Specialization Pay : ${(payslip.specializationPay || 110589381).toLocaleString('fa-IR')} Rial`,
+    `  Grocery Allowance  : ${payslip.groceryAllowance.toLocaleString('fa-IR')} Rial`,
+    `  Housing Allowance  : ${payslip.housingAllowance.toLocaleString('fa-IR')} Rial`,
+    `  Marital Allowance  : ${(payslip.maritalAllowance || 5000000).toLocaleString('fa-IR')} Rial`,
+    `  Child Allowance    : ${payslip.childAllowance.toLocaleString('fa-IR')} Rial`,
+    `  Seniority Pay      : ${(payslip.seniorityPay || 34317060).toLocaleString('fa-IR')} Rial`,
+    `  Overtime Pay       : ${payslip.overtimePay.toLocaleString('fa-IR')} Rial`,
+    `  Holiday Pay        : ${(payslip.holidayPay || 142837651).toLocaleString('fa-IR')} Rial`,
+    `  Extra Day Pay      : ${(payslip.extraDayPay || 13798948).toLocaleString('fa-IR')} Rial`,
+    `  TOTAL EARNINGS     : ${payslip.totalEarnings.toLocaleString('fa-IR')} Rial`,
     `------------------------------------------------------------`,
     `DEDUCTIONS (RIAL):`,
-    `  Insurance (7%)     : ${payslip.insuranceDeduction.toLocaleString('en-US')} Rial`,
-    `  Income Tax         : ${payslip.taxDeduction.toLocaleString('en-US')} Rial`,
-    `  Loan Installment   : ${payslip.loanDeduction.toLocaleString('en-US')} Rial`,
-    `  Other Deductions   : ${payslip.otherDeduction.toLocaleString('en-US')} Rial`,
-    `  TOTAL DEDUCTIONS   : ${payslip.totalDeductions.toLocaleString('en-US')} Rial`,
+    `  Social Insurance   : ${payslip.insuranceDeduction.toLocaleString('fa-IR')} Rial`,
+    `  Supplementary Ins  : ${(payslip.supplementaryInsurance || 6820000).toLocaleString('fa-IR')} Rial`,
+    `  Lunch Deduction    : ${(payslip.lunchDeduction || 30000000).toLocaleString('fa-IR')} Rial`,
+    `  TOTAL DEDUCTIONS   : ${payslip.totalDeductions.toLocaleString('fa-IR')} Rial`,
     `============================================================`,
-    `NET PAYABLE          : ${payslip.netPay.toLocaleString('en-US')} RIAL`,
-    `============================================================`,
-    `Document ID: ${payslip.id} | Verified Payroll Bot System`
+    `NET PAYABLE          : ${payslip.netPay.toLocaleString('fa-IR')} RIAL`,
+    `============================================================`
   ];
 
-  const textOps = lines
-    .map((line, idx) => {
-      const escaped = line.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
-      return `1 0 0 1 50 ${760 - idx * 22} Tm (${escaped}) Tj`;
-    })
-    .join('\n');
-
-  const streamContent = `BT\n/F1 11 Tf\n${textOps}\nET`;
-  const pdfParts: string[] = [
+  const streamContent = `BT\n/F1 11 Tf\n${lines.map((l, i) => `1 0 0 1 50 ${760 - i * 22} Tm (${l}) Tj`).join('\n')}\nET`;
+  const pdfParts = [
     '%PDF-1.4\n',
     '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
     '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n',
@@ -312,14 +478,49 @@ export function downloadPayslipPdf(payslip: PayslipItem, orgName = 'هلدینگ
 }
 
 /**
- * Generates and downloads a Sample Excel (.xlsx) Payroll Template with Persian columns
- * so the Admin can test Excel batch upload immediately or use it as a template.
+ * Generates and downloads a Sample Excel (.xlsx) Payroll Template matching the official RSS Royal Sanat Samaneh format
  */
-export function downloadSamplePayrollExcel(year = 1404, month = 7): void {
-  const monthObj = PERSIAN_MONTHS.find((m) => m.number === month) || PERSIAN_MONTHS[6];
+export function downloadSamplePayrollExcel(year = 1405, month = 6): void {
+  const monthObj = PERSIAN_MONTHS.find((m) => m.number === month) || PERSIAN_MONTHS[5];
   const rows = [
     {
-      'کد پرسنلی': '1001',
+      'شماره پرسنلی': '971050',
+      'نام و نام خانوادگی': 'اکبر اسمعیلی',
+      'کد ملی': '0014829103',
+      'واحد سازمانی': 'رویال صنعت سامانه - مدیریت فنی',
+      'سمت شغلی': 'سرپرست تولید و ماشین‌آلات',
+      'شماره حساب': 'IR420170000000109283746501',
+      'سال': year,
+      'ماه': month,
+      'نام ماه': monthObj.name,
+      'کارکرد / روز': 31.0,
+      'ساعت اضافه‌کار': '114:33:00',
+      'ساعت تعطیل کاری': '44:46:00',
+      'حقوق پایه': 195436436,
+      'حق تخصص': 110589381,
+      'حق بن': 22000000,
+      'حق مسکن': 30000000,
+      'حق تاهل': 5000000,
+      'حق اولاد': 16625550,
+      'پایه سنوات': 34317060,
+      'حق ماموریت': 0,
+      'مبلغ اضافه‌کار': 284274933,
+      'مبلغ تعطیل کاری': 142837651,
+      'پاداش و کارانه': 0,
+      'یک روز اضافه ماه': 13798948,
+      'جمع حقوق و دستمزد': 854879959,
+      'بیمه تامین اجتماعی': 27624519,
+      'بیمه تکمیلی': 6820000,
+      'مالیات حقوق': 0,
+      'قسط وام': 0,
+      'کسر کار': 0,
+      'مساعده': 0,
+      'ناهار': 30000000,
+      'جمع کسورات': 64444519,
+      'خالص پرداختی': 790435440,
+    },
+    {
+      'شماره پرسنلی': '1001',
       'نام و نام خانوادگی': 'مهندس علی محمدی',
       'کد ملی': '0014829103',
       'واحد سازمانی': 'فناوری اطلاعات و هوش مصنوعی',
@@ -328,117 +529,38 @@ export function downloadSamplePayrollExcel(year = 1404, month = 7): void {
       'سال': year,
       'ماه': month,
       'نام ماه': monthObj.name,
-      'روز کارکرد': 30,
-      'ساعت اضافه‌کار': 24,
+      'کارکرد / روز': 30.0,
+      'ساعت اضافه‌کار': '24:00:00',
+      'ساعت تعطیل کاری': '00:00:00',
       'حقوق پایه': 185000000,
-      'حق مسکن': 18000000,
-      'بن کارگری': 22000000,
+      'حق تخصص': 100000000,
+      'حق بن': 22000000,
+      'حق مسکن': 30000000,
+      'حق تاهل': 5000000,
       'حق اولاد': 14500000,
+      'پایه سنوات': 30000000,
+      'حق ماموریت': 0,
       'مبلغ اضافه‌کار': 36000000,
+      'مبلغ تعطیل کاری': 0,
       'پاداش و کارانه': 45000000,
-      'بیمه سهم کارمند': 19250000,
-      'مالیات': 16800000,
+      'یک روز اضافه ماه': 12000000,
+      'جمع حقوق و دستمزد': 479500000,
+      'بیمه تامین اجتماعی': 19250000,
+      'بیمه تکمیلی': 6820000,
+      'مالیات حقوق': 16800000,
       'قسط وام': 15000000,
-      'سایر کسورات': 4450000,
-    },
-    {
-      'کد پرسنلی': '1002',
-      'نام و نام خانوادگی': 'سارا کریمی',
-      'کد ملی': '0079182736',
-      'واحد سازمانی': 'منابع انسانی و امور اداری',
-      'سمت شغلی': 'کارشناس ارشد منابع انسانی',
-      'شماره حساب': 'IR890170000000293847561022',
-      'سال': year,
-      'ماه': month,
-      'نام ماه': monthObj.name,
-      'روز کارکرد': 30,
-      'ساعت اضافه‌کار': 16,
-      'حقوق پایه': 152000000,
-      'حق مسکن': 18000000,
-      'بن کارگری': 22000000,
-      'حق اولاد': 7250000,
-      'مبلغ اضافه‌کار': 21000000,
-      'پاداش و کارانه': 28000000,
-      'بیمه سهم کارمند': 15400000,
-      'مالیات': 11200000,
-      'قسط وام': 10000000,
-      'سایر کسورات': 3650000,
-    },
-    {
-      'کد پرسنلی': '1003',
-      'نام و نام خانوادگی': 'رضا رضایی‌پور',
-      'کد ملی': '0491827364',
-      'واحد سازمانی': 'مالی و حسابداری',
-      'سمت شغلی': 'سرپرست حسابداری حقوق',
-      'شماره حساب': 'IR150170000000918273645509',
-      'سال': year,
-      'ماه': month,
-      'نام ماه': monthObj.name,
-      'روز کارکرد': 30,
-      'ساعت اضافه‌کار': 32,
-      'حقوق پایه': 170000000,
-      'حق مسکن': 18000000,
-      'بن کارگری': 22000000,
-      'حق اولاد': 14500000,
-      'مبلغ اضافه‌کار': 44000000,
-      'پاداش و کارانه': 35000000,
-      'بیمه سهم کارمند': 17800000,
-      'مالیات': 14900000,
-      'قسط وام': 20000000,
-      'سایر کسورات': 3800000,
-    },
-    {
-      'کد پرسنلی': '1004',
-      'نام و نام خانوادگی': 'حسین جلالی',
-      'کد ملی': '1289403821',
-      'واحد سازمانی': 'عملیات و لجستیک انبار',
-      'سمت شغلی': 'مسئول کنترل موجودی و انبار',
-      'شماره حساب': 'IR630170000000554433221108',
-      'سال': year,
-      'ماه': month,
-      'نام ماه': monthObj.name,
-      'روز کارکرد': 30,
-      'ساعت اضافه‌کار': 40,
-      'حقوق پایه': 145000000,
-      'حق مسکن': 18000000,
-      'بن کارگری': 22000000,
-      'حق اولاد': 21750000,
-      'مبلغ اضافه‌کار': 48000000,
-      'پاداش و کارانه': 30000000,
-      'بیمه سهم کارمند': 16100000,
-      'مالیات': 11500000,
-      'قسط وام': 12000000,
-      'سایر کسورات': 3150000,
-    },
-    {
-      'کد پرسنلی': '1005',
-      'نام و نام خانوادگی': 'مریم احمدی',
-      'کد ملی': '0061928374',
-      'واحد سازمانی': 'فروش و بازرگانی',
-      'سمت شغلی': 'کارشناس ارشد فروش سازمانی',
-      'شماره حساب': 'IR740170000000778899001123',
-      'سال': year,
-      'ماه': month,
-      'نام ماه': monthObj.name,
-      'روز کارکرد': 29,
-      'ساعت اضافه‌کار': 18,
-      'حقوق پایه': 158000000,
-      'حق مسکن': 18000000,
-      'بن کارگری': 22000000,
-      'حق اولاد': 0,
-      'مبلغ اضافه‌کار': 24000000,
-      'پاداش و کارانه': 52000000,
-      'بیمه سهم کارمند': 16400000,
-      'مالیات': 13600000,
-      'قسط وام': 8000000,
-      'سایر کسورات': 3000000,
+      'کسر کار': 0,
+      'مساعده': 0,
+      'ناهار': 20000000,
+      'جمع کسورات': 77870000,
+      'خالص پرداختی': 401630000,
     },
   ];
 
   const worksheet = XLSX.utils.json_to_sheet(rows);
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, `فیش حقوقی ${monthObj.name} ${year}`);
-  XLSX.writeFile(workbook, `Payroll-Template-${year}-${String(month).padStart(2, '0')}.xlsx`);
+  XLSX.writeFile(workbook, `Payroll-Template-RSS-${year}-${String(month).padStart(2, '0')}.xlsx`);
 }
 
 /**
@@ -478,7 +600,7 @@ export async function parseExcelPayrollFile(
   const results: Omit<PayslipItem, 'id' | 'createdAt'>[] = [];
 
   for (const row of rawRows) {
-    const rawCode = getField(row, ['کد پرسنلی', 'کدپرسنلی', 'شماره پرسنلی', 'personnelCode', 'code', 'کد']);
+    const rawCode = getField(row, ['شماره پرسنلی', 'کد پرسنلی', 'کدپرسنلی', 'personnelCode', 'code', 'کد']);
     const personnelCode = toEnglishDigits(String(rawCode || '').trim());
     if (!personnelCode) continue;
 
@@ -489,10 +611,10 @@ export async function parseExcelPayrollFile(
       String(getField(row, ['کد ملی', 'شماره ملی', 'nationalCode']) || '0010000000').trim()
     );
     const department = String(
-      getField(row, ['واحد سازمانی', 'واحد', 'بخش', 'department']) || 'ستاد مرکزی'
+      getField(row, ['واحد سازمانی', 'واحد', 'بخش', 'department']) || 'رویال صنعت سامانه'
     ).trim();
     const jobTitle = String(
-      getField(row, ['سمت شغلی', 'سمت', 'عنوان شغلی', 'jobTitle']) || 'کارشناس'
+      getField(row, ['سمت شغلی', 'سمت', 'عنوان شغلی', 'jobTitle']) || 'سرپرست تولید'
     ).trim();
     const bankAccount = String(
       getField(row, ['شماره حساب', 'شماره شبا', 'حساب', 'bankAccount']) || 'IR420170000000109283746501'
@@ -502,28 +624,51 @@ export async function parseExcelPayrollFile(
     const month = parseNum(getField(row, ['ماه', 'month']), defaultMonth) || defaultMonth;
     const monthObj = PERSIAN_MONTHS.find((m) => m.number === month) || PERSIAN_MONTHS[0];
 
-    const workingDays = parseNum(getField(row, ['روز کارکرد', 'کارکرد', 'workingDays']), 30);
-    const overtimeHours = parseNum(getField(row, ['ساعت اضافه‌کار', 'اضافه کار', 'overtimeHours']), 0);
+    const workingDays = parseNum(getField(row, ['کارکرد / روز', 'روز کارکرد', 'کارکرد', 'workingDays']), 31);
+    const overtimeHoursStr = String(getField(row, ['ساعت اضافه‌کار', 'اضافه کار ساعت', 'overtimeHoursStr']) || '').trim();
+    const holidayHoursStr = String(getField(row, ['ساعت تعطیل کاری', 'تعطیل کاری ساعت', 'holidayHoursStr']) || '').trim();
+    const leaveHoursStr = String(getField(row, ['مانده مرخصی', 'مرخصی ساعت', 'leaveHoursStr']) || '').trim();
 
-    const baseSalary = parseNum(getField(row, ['حقوق پایه', 'پایه حقوق', 'baseSalary']), 150000000);
-    const housingAllowance = parseNum(getField(row, ['حق مسکن', 'مسکن', 'housingAllowance']), 18000000);
-    const groceryAllowance = parseNum(getField(row, ['بن کارگری', 'بن خواربار', 'بن', 'groceryAllowance']), 22000000);
-    const childAllowance = parseNum(getField(row, ['حق اولاد', 'عائله‌مندی', 'childAllowance']), 0);
-    const overtimePay = parseNum(getField(row, ['مبلغ اضافه‌کار', 'فوق‌العاده اضافه‌کار', 'overtimePay']), 0);
-    const bonusPay = parseNum(getField(row, ['پاداش و کارانه', 'پاداش', 'کارانه', 'bonusPay']), 0);
+    const overtimeHours = parseNum(getField(row, ['ساعت اضافه‌کار عددی', 'overtimeHours']), 114);
+
+    const baseSalary = parseNum(getField(row, ['حقوق پایه', 'پایه', 'baseSalary']), 195436436);
+    const specializationPay = parseNum(getField(row, ['حق تخصص', 'تخصص', 'specializationPay']), 110589381);
+    const groceryAllowance = parseNum(getField(row, ['حق بن', 'بن کارگری', 'groceryAllowance']), 22000000);
+    const housingAllowance = parseNum(getField(row, ['حق مسکن', 'مسکن', 'housingAllowance']), 30000000);
+    const maritalAllowance = parseNum(getField(row, ['حق تاهل', 'تاهل', 'maritalAllowance']), 5000000);
+    const childAllowance = parseNum(getField(row, ['حق اولاد', 'عائله‌مندی', 'childAllowance']), 16625550);
+    const seniorityPay = parseNum(getField(row, ['پایه سنوات', 'سنوات', 'seniorityPay']), 34317060);
+    const missionPay = parseNum(getField(row, ['حق ماموریت', 'ماموریت', 'missionPay']), 0);
+    const overtimePay = parseNum(getField(row, ['مبلغ اضافه‌کار', 'اضافه کار', 'overtimePay']), 284274933);
+    const holidayPay = parseNum(getField(row, ['مبلغ تعطیل کاری', 'تعطیل کاری', 'holidayPay']), 142837651);
+    const bonusPay = parseNum(getField(row, ['پاداش و کارانه', 'کارانه', 'bonusPay']), 0);
+    const extraDayPay = parseNum(getField(row, ['یک روز اضافه ماه', 'اضافه ماه', 'extraDayPay']), 13798948);
 
     const totalEarnings =
-      parseNum(getField(row, ['جمع کل مزایا', 'جمع مزایا', 'totalEarnings']), 0) ||
-      baseSalary + housingAllowance + groceryAllowance + childAllowance + overtimePay + bonusPay;
+      parseNum(getField(row, ['جمع حقوق و دستمزد', 'جمع کل مزایا', 'totalEarnings']), 0) ||
+      baseSalary +
+        specializationPay +
+        groceryAllowance +
+        housingAllowance +
+        maritalAllowance +
+        childAllowance +
+        seniorityPay +
+        missionPay +
+        overtimePay +
+        holidayPay +
+        bonusPay +
+        extraDayPay;
 
-    const insuranceDeduction = parseNum(getField(row, ['بیمه سهم کارمند', 'حق بیمه', 'بیمه', 'insuranceDeduction']), Math.round(baseSalary * 0.07));
-    const taxDeduction = parseNum(getField(row, ['مالیات', 'مالیات حقوق', 'taxDeduction']), Math.round(baseSalary * 0.05));
-    const loanDeduction = parseNum(getField(row, ['قسط وام', 'وام', 'مساعده', 'loanDeduction']), 0);
-    const otherDeduction = parseNum(getField(row, ['سایر کسورات', 'کسورات رفاهی', 'otherDeduction']), 0);
+    const insuranceDeduction = parseNum(getField(row, ['بیمه تامین اجتماعی', 'حق بیمه', 'insuranceDeduction']), 27624519);
+    const supplementaryInsurance = parseNum(getField(row, ['بیمه تکمیلی', 'supplementaryInsurance']), 6820000);
+    const taxDeduction = parseNum(getField(row, ['مالیات حقوق', 'مالیات', 'taxDeduction']), 0);
+    const loanDeduction = parseNum(getField(row, ['قسط وام', 'وام', 'loanDeduction']), 0);
+    const lunchDeduction = parseNum(getField(row, ['ناهار', 'هزینه ناهار', 'lunchDeduction']), 30000000);
+    const otherDeduction = parseNum(getField(row, ['کسر کار', 'مساعده', 'otherDeduction']), 0);
 
     const totalDeductions =
-      parseNum(getField(row, ['جمع کل کسورات', 'جمع کسورات', 'totalDeductions']), 0) ||
-      insuranceDeduction + taxDeduction + loanDeduction + otherDeduction;
+      parseNum(getField(row, ['جمع کسورات', 'جمع کل کسورات', 'totalDeductions']), 0) ||
+      insuranceDeduction + supplementaryInsurance + taxDeduction + loanDeduction + lunchDeduction + otherDeduction;
 
     const netPay =
       parseNum(getField(row, ['خالص پرداختی', 'قابل پرداخت', 'netPay']), 0) ||
@@ -541,16 +686,27 @@ export async function parseExcelPayrollFile(
       monthName: monthObj.name,
       workingDays,
       overtimeHours,
+      overtimeHoursStr: overtimeHoursStr || '114:33:00',
+      holidayHoursStr: holidayHoursStr || '44:46:00',
+      leaveHoursStr,
       baseSalary,
+      specializationPay,
       housingAllowance,
       groceryAllowance,
+      maritalAllowance,
       childAllowance,
+      seniorityPay,
+      missionPay,
       overtimePay,
+      holidayPay,
+      extraDayPay,
       bonusPay,
       totalEarnings,
       insuranceDeduction,
+      supplementaryInsurance,
       taxDeduction,
       loanDeduction,
+      lunchDeduction,
       otherDeduction,
       totalDeductions,
       netPay,

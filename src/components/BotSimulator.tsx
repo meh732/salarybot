@@ -971,25 +971,23 @@ export const BotSimulator: React.FC<BotSimulatorProps> = ({
           )}
           {!isUserAdmin && (
             <>
-              <GlassButton
-                variant={state.config.adminClaimLocked ? 'rose' : 'amber'}
-                size="sm"
-                disabled={isBusy}
-                onClick={() =>
-                  onBotInteract({
-                    userId: activeUser.id,
-                    actionType: 'command',
-                    payload: `/setadmin ${state.config.adminSecretCode || '123456'}`,
-                  })
-                }
-              >
-                <Crown className="w-3.5 h-3.5" />
-                <span>
-                  {state.config.adminClaimLocked
-                    ? '🔒 دستور /setadmin قفل شده (تست مسدود بودن)'
-                    : `🔑 ثبت اولین ادمین (/setadmin ${state.config.adminSecretCode || '123456'})`}
-                </span>
-              </GlassButton>
+              {!state.config.adminClaimLocked && !(state.config.adminMessengerIds && state.config.adminMessengerIds.length > 0) && !state.users.some(u => u.isAdmin) && (
+                <GlassButton
+                  variant="amber"
+                  size="sm"
+                  disabled={isBusy}
+                  onClick={() =>
+                    onBotInteract({
+                      userId: activeUser.id,
+                      actionType: 'command',
+                      payload: `/setadmin ${state.config.adminSecretCode || '123456'}`,
+                    })
+                  }
+                >
+                  <Crown className="w-3.5 h-3.5" />
+                  <span>ثبت اولین ادمین (/setadmin)</span>
+                </GlassButton>
+              )}
               <GlassButton
                 variant="cyan"
                 size="sm"
@@ -1002,7 +1000,7 @@ export const BotSimulator: React.FC<BotSimulatorProps> = ({
                   })
                 }
               >
-                <span>🆔 آیدی عددی من (/id)</span>
+                <span>آیدی عددی من (/id)</span>
               </GlassButton>
             </>
           )}
@@ -1035,6 +1033,67 @@ export const BotSimulator: React.FC<BotSimulatorProps> = ({
             <span>👤 کد پرسنلی من</span>
           </GlassButton>
         </div>
+
+        {/* Command Menu Popup List (نمایش لیست دستورات مجاز مختص هر نقش) */}
+        {inputText.startsWith('/') && (
+          <div className="p-2 bg-slate-900 border border-slate-700 rounded-xl space-y-1 text-xs shadow-xl animate-in fade-in slide-in-from-bottom-2">
+            <div className="px-2.5 py-1 text-[11px] font-bold text-slate-400 border-b border-slate-800 flex items-center justify-between">
+              <span>دستورات مجاز در پیام‌رسان ({isUserAdmin ? 'دسترسی ادمین کل' : 'دسترسی پرسنل عادی'})</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setInputText('/start');
+                onBotInteract({ userId: activeUser.id, actionType: 'command', payload: '/start' });
+                setInputText('');
+              }}
+              className="w-full text-right px-3 py-2 rounded-lg hover:bg-slate-800 flex items-center justify-between text-slate-200 cursor-pointer"
+            >
+              <span className="font-mono text-cyan-300 font-bold">/start</span>
+              <span className="text-slate-400 text-[11px]">شروع ربات و مشاهده منوی اصلی</span>
+            </button>
+            {isUserAdmin && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInputText('/admin');
+                    onBotInteract({ userId: activeUser.id, actionType: 'command', payload: '/admin' });
+                    setInputText('');
+                  }}
+                  className="w-full text-right px-3 py-2 rounded-lg hover:bg-slate-800 flex items-center justify-between text-amber-200 cursor-pointer bg-amber-500/10"
+                >
+                  <span className="font-mono text-amber-300 font-bold">/admin</span>
+                  <span className="text-amber-200 text-[11px]">پنل مدیریت کل درون ربات (مختص ادمین)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInputText('/backup');
+                    onBotInteract({ userId: activeUser.id, actionType: 'command', payload: '/backup' });
+                    setInputText('');
+                  }}
+                  className="w-full text-right px-3 py-2 rounded-lg hover:bg-slate-800 flex items-center justify-between text-teal-200 cursor-pointer"
+                >
+                  <span className="font-mono text-teal-300 font-bold">/backup</span>
+                  <span className="text-slate-400 text-[11px]">دریافت فوری فایل بکاپ دیتابیس (.json)</span>
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setInputText('/help');
+                onBotInteract({ userId: activeUser.id, actionType: 'command', payload: '/help' });
+                setInputText('');
+              }}
+              className="w-full text-right px-3 py-2 rounded-lg hover:bg-slate-800 flex items-center justify-between text-slate-200 cursor-pointer"
+            >
+              <span className="font-mono text-violet-300 font-bold">/help</span>
+              <span className="text-slate-400 text-[11px]">راهنما و ارتباط با پشتیبانی پرسنلی</span>
+            </button>
+          </div>
+        )}
 
         <form onSubmit={handleSendText} className="flex items-center gap-2">
           {/* Menu button ([::] / ☰) */}

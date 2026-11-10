@@ -377,14 +377,24 @@ async function notifyAdminsNewVerification(state: AppStateResponse, targetUser: 
     .map((x) => x.trim())
     .filter(Boolean);
   const adminIds = Array.from(
-    new Set([...(state.config.adminMessengerIds || []), ...envAdmins])
-  ).filter((id) => id && id !== 'usr-admin-master');
+    new Set([...(state.config.adminMessengerIds || []), ...envAdmins, 'usr-admin-master'])
+  ).filter(Boolean);
+
+  const cardImg =
+    targetUser.nationalCardImageUrl ||
+    createSampleCardSvgUrl(targetUser.submittedName || 'پرسنل', targetUser.nationalCode || '0010000000', '۱۳۷۲/۰۵/۱۸', 'محمد');
+  targetUser.nationalCardImageUrl = cardImg;
 
   const verifyButtons = buildAdminVerifyUserButtons(state, targetUser);
-  const notifText = `🪪 **درخواست جدید احراز هویت پرسنل در ربات**\n────────────────────\n• نام و نام خانوادگی: **${targetUser.submittedName}**\n• کد ملی: **${toPersianDigitsServer(targetUser.nationalCode)}**\n• پیام‌رسان: **${targetUser.platform === 'telegram' ? 'تلگرام' : 'بله'}** (آیدی عددی: \`${targetUser.messengerId}\`)\n\nلطفاً با دکمه‌های زیر کد پرسنلی اختصاصی ایشان را ثبت و تأیید فرمایید:`;
+  const notifText = `📋 درخواست جدید احراز هویت پرسنل در ربات\n────────────────────\n• نام و نام خانوادگی: ${targetUser.submittedName}\n• کد ملی: ${toPersianDigitsServer(targetUser.nationalCode)}\n• پیام‌رسان: ${targetUser.platform === 'telegram' ? 'تلگرام' : 'بله'} (شناسه کاربری: ${targetUser.messengerId})\n\nلطفاً با استفاده از دکمه‌های زیر کد پرسنلی اختصاصی ایشان را ثبت و تأیید فرمایید:`;
 
-  // 1. Send in-app notification to all Admin users in state (for web simulator)
-  const adminUsers = state.users.filter((u) => u.isAdmin);
+  // 1. Send in-app notification to all Admin users in state (including master admin)
+  const adminUsers = state.users.filter((u) => u.isAdmin || u.id === 'usr-admin-master');
+  if (!adminUsers.some((u) => u.id === 'usr-admin-master')) {
+    const master = state.users.find((u) => u.id === 'usr-admin-master');
+    if (master) adminUsers.push(master);
+  }
+
   for (const adminUser of adminUsers) {
     if (!state.messagesByUser[adminUser.id]) state.messagesByUser[adminUser.id] = [];
     state.messagesByUser[adminUser.id].push({
@@ -394,13 +404,11 @@ async function notifyAdminsNewVerification(state: AppStateResponse, targetUser: 
       text: notifText,
       timestamp: nowTimeStr(),
       inlineKeyboard: verifyButtons,
-      attachment: targetUser.nationalCardImageUrl
-        ? {
-            type: 'national_card',
-            imageUrl: targetUser.nationalCardImageUrl,
-            caption: `تصویر کارت ملی ${targetUser.submittedName}`,
-          }
-        : undefined,
+      attachment: {
+        type: 'national_card',
+        imageUrl: cardImg,
+        caption: `تصویر کارت ملی ارسالی توسط ${targetUser.submittedName}`,
+      },
     });
   }
 
@@ -409,6 +417,7 @@ async function notifyAdminsNewVerification(state: AppStateResponse, targetUser: 
   const baleToken = state.config.baleBotToken?.trim();
 
   for (const adminId of adminIds) {
+    if (adminId === 'usr-admin-master') continue;
     if (targetUser.platform === 'telegram' && tgToken) {
       await sendTelegramOrBaleMessage({
         platform: 'telegram',
@@ -862,23 +871,41 @@ function handleBotInteraction(
     if (!user.personnelCode) user.personnelCode = '1001';
   }
 
+function hasAnyAdminDefined(state: AppStateResponse): boolean {
+  const envAdmins = (process.env.ADMIN_IDS || '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const configAdmins = (state.config.adminMessengerIds || []).filter(Boolean);
+  const stateAdmins = state.users.filter((u) => u.isAdmin);
+  return (
+    envAdmins.length > 0 ||
+    configAdmins.length > 0 ||
+    stateAdmins.length > 0 ||
+    Boolean(state.config.adminClaimLocked)
+  );
+}
+
   // =========================================================================
   // ZERO-PANEL WEBHOOK ADMIN CLAIM FLOW (`/setadmin <secret>`, `/claim <secret>`, or 1-Click Button)
   // Strictly ONE-TIME USE: Automatically locks (`adminClaimLocked = true`) after the first Admin registers!
   // =========================================================================
+  const systemHasAdmins = hasAnyAdminDefined(state);
+
   if (
     payload.startsWith('/setadmin') ||
     payload.startsWith('/claim') ||
-    (payload.startsWith('/admin ') && payload.split(/\s+/)[1]) ||
-    payload.startsWith('claim_admin_exec:')
+    (payload.startsWith('/admin') && !isUserAdmin) ||
+    payload.startsWith('claim_admin_exec:') ||
+    payload === 'claim_admin_prompt'
   ) {
-    pushUserMsg(payload.startsWith('claim_admin_exec:') ? `🔑 ثبت اکانت به عنوان ادمین کل در بات` : payload);
+    pushUserMsg(payload.startsWith('claim_admin_exec:') ? 'ثبت اکانت به عنوان ادمین کل در بات' : payload);
 
-    // Check if `/setadmin` has already been used once and is locked for all other users
-    if (state.config.adminClaimLocked && !isUserAdmin) {
+    // If even a single admin is already defined in the system, block non-admin claim requests completely!
+    if (!isUserAdmin && systemHasAdmins) {
       pushBotMsg(
-        `🔒 **دستور معرفی ادمین (\`/setadmin\`) غیرفعال شده است!**\n────────────────────\nاین دستور **یک‌بار مصرف** بوده و پس از ثبت اولین ادمین کل، به صورت خودکار برای سایر کاربران **قفل و غیرفعال** گردیده است.\n\n⚠️ در صورت نیاز به افزودن ادمین جدید، فقط **ادمین کل فعلی** می‌تواند از داخل منوی \`/admin\` ⬅️ \`⚙️ تنظیمات\` ⬅️ \`👑 مدیریت ادمین‌ها\` آیدی عددی شما (\`${user.messengerId}\`) را اضافه نماید.`,
-        [[{ text: '🏠 بازگشت به منوی اصلی', callbackData: 'main_menu', colorVariant: 'rose' }]]
+        `⛔ عدم دسترسی به پنل مدیریت\n────────────────────\nحساب کاربری شما (شناسه: ${user.messengerId}) دسترسی مدیریت ندارد.\n\nدر صورت نیاز به افزودن دسترسی ادمین، مدیر کل سازمان باید آیدی عددی شما را از داخل پنل مدیریت ثبت کند.`,
+        [[{ text: 'بازگشت به منوی اصلی', callbackData: 'main_menu', colorVariant: 'emerald' }]]
       );
       return { user, messages: chat };
     }
@@ -889,16 +916,16 @@ function handleBotInteraction(
 
     if (!providedPin) {
       pushBotMsg(
-        `🔑 **معرفی و ثبت اولین ادمین کل از داخل ربات (یک‌بار مصرف)**\n────────────────────\n• آیدی عددی شما: \`${user.messengerId}\`\n• یوزرنیم: \`@${user.username}\`\n\nبرای اینکه همین اکانت شما در حالت وب‌هوک به عنوان **ادمین کل** ثبت شود، دستور زیر را به همراه رمز مستر (پیش‌فرض: \`123456\`) ارسال کنید:\n\n\`/setadmin 123456\`\n\n🔒 **امنیت یک‌بار مصرف:** به محض ثبت شما، این دستور به صورت خودکار **قفل و برای تمام کاربران دیگر غیرفعال** می‌شود!`,
+        `معرفی و ثبت اولین ادمین کل از داخل ربات (یک‌بار مصرف)\n────────────────────\n• آیدی عددی شما: ${user.messengerId}\n• یوزرنیم: @${user.username}\n\nبرای اینکه همین اکانت شما به عنوان ادمین کل ثبت شود، دستور زیر را به همراه رمز مستر (پیش‌فرض: 123456) ارسال کنید:\n\n/setadmin 123456\n\nتوجه: به محض ثبت شما، این دستور به صورت خودکار برای تمام کاربران دیگر قفل و غیرفعال می‌شود.`,
         [
           [
             {
-              text: `⚡ ثبت فوری به عنوان ادمین کل و قفل خودکار دستور`,
+              text: 'ثبت فوری به عنوان ادمین کل و قفل خودکار دستور',
               callbackData: `claim_admin_exec:${masterSecret}`,
               colorVariant: 'amber',
             },
           ],
-          [{ text: '🏠 بازگشت به منوی اصلی', callbackData: 'main_menu', colorVariant: 'emerald' }],
+          [{ text: 'بازگشت به منوی اصلی', callbackData: 'main_menu', colorVariant: 'emerald' }],
         ]
       );
       return { user, messages: chat };
@@ -906,8 +933,8 @@ function handleBotInteraction(
 
     if (providedPin !== toEnglishDigitsServer(masterSecret)) {
       pushBotMsg(
-        `❌ **رمز مستر ادمین نامعتبر است!**\nلطفاً دستور را به صورت \`/setadmin رمز_مستر\` ارسال فرمایید (رمز پیش‌فرض اولیه: \`123456\` یا مقدار \`ADMIN_SECRET\` در فایل \`.env\` سرور).`,
-        [[{ text: '🏠 بازگشت', callbackData: 'main_menu', colorVariant: 'rose' }]]
+        `❌ رمز مستر ادمین نامعتبر است.\nلطفاً دستور را به صورت /setadmin رمز_مستر ارسال فرمایید (رمز پیش‌فرض اولیه: 123456).`,
+        [[{ text: 'بازگشت', callbackData: 'main_menu', colorVariant: 'rose' }]]
       );
       return { user, messages: chat };
     }
@@ -918,7 +945,7 @@ function handleBotInteraction(
     user.verificationStatus = 'approved';
     user.isActive = true;
     if (!user.personnelCode) user.personnelCode = '1001';
-    if (!user.submittedName) user.submittedName = `👑 ادمین کل (${user.username})`;
+    if (!user.submittedName) user.submittedName = `ادمین کل (${user.username})`;
     user.adminSession = { step: 'idle', uploadYear: 1404, uploadMonth: 9 };
 
     if (!state.config.adminMessengerIds) {
@@ -932,7 +959,7 @@ function handleBotInteraction(
     isUserAdmin = true;
 
     pushBotMsg(
-      `🎉 **تبریک! اکانت شما (\`${user.messengerId}\` / \`@${user.username}\`) به عنوان «👑 ادمین کل سامانه» ثبت شد!**\n🔒 **قفل امنیتی خودکار فعال شد:** دستور \`/setadmin\` از این لحظه به صورت خودکار **قفل و برای تمامی کاربران دیگر غیرفعال** گردید تا هیچ شخص دیگری نتواند از آن استفاده کند.\n────────────────────\nاکنون تمام امکانات مدیریتی ربات در اختیار شماست:`,
+      `🎉 اکانت شما (${user.messengerId} / @${user.username}) به عنوان ادمین کل سامانه ثبت شد!\nقفل امنیتی خودکار فعال شد: دستور /setadmin از این لحظه برای تمامی کاربران دیگر غیرفعال گردید.\n────────────────────\nاکنون تمام امکانات مدیریتی ربات در اختیار شماست:`,
       buildAdminInBotKeyboard(state)
     );
     return { user, messages: chat };
