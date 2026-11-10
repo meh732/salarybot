@@ -22,7 +22,9 @@ import {
   downloadSamplePayrollExcel,
   formatRial,
   generatePayslipSvgDataUrl,
+  getCurrentSolarYear,
   parseExcelPayrollFile,
+  SOLAR_YEARS,
   toEnglishDigits,
   toPersianDigits,
 } from '../utils/payslipGenerator';
@@ -43,7 +45,7 @@ export const PayslipUploader: React.FC<PayslipUploaderProps> = ({
   onDeletePayslip,
 }) => {
   const [uploadMode, setUploadMode] = useState<'excel' | 'pdf_direct'>('excel');
-  const [selectedYear, setSelectedYear] = useState<number>(1404);
+  const [selectedYear, setSelectedYear] = useState<number>(getCurrentSolarYear());
   const [selectedMonth, setSelectedMonth] = useState<number>(9); // آذر
   const [notifyOnUpload, setNotifyOnUpload] = useState<boolean>(true);
   const [stagedItems, setStagedItems] = useState<Omit<PayslipItem, 'id' | 'createdAt'>[]>([]);
@@ -315,9 +317,11 @@ export const PayslipUploader: React.FC<PayslipUploaderProps> = ({
               onChange={(e) => setSelectedYear(Number(e.target.value))}
               className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs sm:text-sm text-white focus:outline-none focus:border-emerald-500"
             >
-              <option value={1405}>سال ۱۴۰۵</option>
-              <option value={1404}>سال ۱۴۰۴</option>
-              <option value={1403}>سال ۱۴۰۳</option>
+              {SOLAR_YEARS.slice().reverse().map((y) => (
+                <option key={y} value={y}>
+                  سال {toPersianDigits(y)}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -599,9 +603,11 @@ export const PayslipUploader: React.FC<PayslipUploaderProps> = ({
               className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white"
             >
               <option value="all">همه سال‌ها</option>
-              <option value={1405}>سال ۱۴۰۵</option>
-              <option value={1404}>سال ۱۴۰۴</option>
-              <option value={1403}>سال ۱۴۰۳</option>
+              {SOLAR_YEARS.slice().reverse().map((y) => (
+                <option key={y} value={y}>
+                  سال {toPersianDigits(y)}
+                </option>
+              ))}
             </select>
 
             <select

@@ -32,6 +32,7 @@ import {
   formatRial,
   generateNationalCardSvgDataUrl,
   generatePayslipSvgDataUrl,
+  getCurrentSolarYear,
   parseExcelPayrollFile,
   toEnglishDigits,
   toPersianDigits,
@@ -175,7 +176,7 @@ export const BotSimulator: React.FC<BotSimulatorProps> = ({
     const file = e.target.files?.[0];
     if (!file || !onAdminUploadInChat) return;
 
-    const uploadYear = activeUser.adminSession?.uploadYear || 1404;
+    const uploadYear = activeUser.adminSession?.uploadYear || getCurrentSolarYear();
     const uploadMonth = activeUser.adminSession?.uploadMonth || 9;
     const monthObj = PERSIAN_MONTHS.find((m) => m.number === uploadMonth) || PERSIAN_MONTHS[8];
 

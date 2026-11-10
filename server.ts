@@ -36,6 +36,22 @@ function formatRialServer(amount: number): string {
   return `${new Intl.NumberFormat('fa-IR').format(Math.round(amount || 0))} ریال`;
 }
 
+function getCurrentSolarYearServer(): number {
+  try {
+    const formatted = new Date().toLocaleDateString('fa-IR-u-nu-latn');
+    const parts = formatted.split('/');
+    if (parts.length > 0) {
+      const year = parseInt(parts[0], 10);
+      if (year >= 1400 && year <= 1499) {
+        return year;
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+  return 1405;
+}
+
 function createSampleCardSvgUrl(fullName: string, nationalCode: string, birthDate: string, fatherName: string): string {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400" direction="rtl">
     <defs>
@@ -617,8 +633,14 @@ async function sendBackupToTelegramAdmin(
 
 function buildYearSelectionKeyboard(state: AppStateResponse, personnelCode: string): BotButton[][] {
   const userPayslips = state.payslips.filter((p) => p.personnelCode === personnelCode);
-  const yearsSet = new Set<number>([1403, 1404, 1405]);
-  userPayslips.forEach((p) => yearsSet.add(p.year));
+  const currentY = getCurrentSolarYearServer();
+  const baseYears = [currentY, currentY - 1, currentY - 2].filter((y) => y >= 1400 && y <= 1499);
+  const yearsSet = new Set<number>(baseYears);
+  userPayslips.forEach((p) => {
+    if (p.year >= 1400 && p.year <= 1499) {
+      yearsSet.add(p.year);
+    }
+  });
   const years = Array.from(yearsSet).sort((a, b) => b - a);
 
   const colors: GlassColorVariant[] = ['emerald', 'cyan', 'indigo', 'violet'];
@@ -946,7 +968,7 @@ function hasAnyAdminDefined(state: AppStateResponse): boolean {
     user.isActive = true;
     if (!user.personnelCode) user.personnelCode = '1001';
     if (!user.submittedName) user.submittedName = `ادمین کل (${user.username})`;
-    user.adminSession = { step: 'idle', uploadYear: 1404, uploadMonth: 9 };
+    user.adminSession = { step: 'idle', uploadYear: getCurrentSolarYearServer(), uploadMonth: 9 };
 
     if (!state.config.adminMessengerIds) {
       state.config.adminMessengerIds = [];
@@ -1030,7 +1052,7 @@ function hasAnyAdminDefined(state: AppStateResponse): boolean {
   // =========================================================================
   if (isUserAdmin) {
     if (!user.adminSession) {
-      user.adminSession = { step: 'idle', uploadYear: 1404, uploadMonth: 9 };
+      user.adminSession = { step: 'idle', uploadYear: getCurrentSolarYearServer(), uploadMonth: 9 };
     }
 
     // 1. Entry into In-Bot Admin Panel (`/admin` or `adm_panel`)
@@ -1254,38 +1276,34 @@ function hasAnyAdminDefined(state: AppStateResponse): boolean {
       payload.startsWith('adm_up_year:') ||
       payload.startsWith('adm_up_month:')
     ) {
+      const sysCurrentYear = getCurrentSolarYearServer();
       if (payload.startsWith('adm_up_year:')) {
-        user.adminSession.uploadYear = Number(payload.split(':')[1]) || 1404;
+        user.adminSession.uploadYear = Number(payload.split(':')[1]) || sysCurrentYear;
       }
       if (payload.startsWith('adm_up_month:')) {
         user.adminSession.uploadMonth = Number(payload.split(':')[1]) || 9;
       }
 
-      const curYear = user.adminSession.uploadYear || 1404;
+      const curYear = user.adminSession.uploadYear || sysCurrentYear;
       const curMonth = user.adminSession.uploadMonth || 9;
       const monthObj = PERSIAN_MONTHS.find((m) => m.number === curMonth) || PERSIAN_MONTHS[8];
       user.adminSession.step = 'awaiting_file_upload';
 
       pushUserMsg(`📤 تنظیم بارگذاری فیش در بات (${monthObj.name} ${toPersianDigitsServer(curYear)})`);
 
+      const yearList = [sysCurrentYear, sysCurrentYear - 1, sysCurrentYear - 2].filter((y) => y >= 1400 && y <= 1499);
+      if (!yearList.includes(curYear) && curYear >= 1400 && curYear <= 1499) {
+        yearList.push(curYear);
+        yearList.sort((a, b) => b - a);
+      }
+      const adminYearButtons: BotButton[] = yearList.map((y) => ({
+        text: `${curYear === y ? '✅ ' : ''}سال ${toPersianDigitsServer(y)}`,
+        callbackData: `adm_up_year:${y}`,
+        colorVariant: curYear === y ? 'emerald' : 'sky',
+      }));
+
       const uploadKeyboard: BotButton[][] = [
-        [
-          {
-            text: `${curYear === 1405 ? '✅ ' : ''}سال ۱۴۰۵`,
-            callbackData: 'adm_up_year:1405',
-            colorVariant: curYear === 1405 ? 'emerald' : 'sky',
-          },
-          {
-            text: `${curYear === 1404 ? '✅ ' : ''}سال ۱۴۰۴`,
-            callbackData: 'adm_up_year:1404',
-            colorVariant: curYear === 1404 ? 'emerald' : 'sky',
-          },
-          {
-            text: `${curYear === 1403 ? '✅ ' : ''}سال ۱۴۰۳`,
-            callbackData: 'adm_up_year:1403',
-            colorVariant: curYear === 1403 ? 'emerald' : 'sky',
-          },
-        ],
+        adminYearButtons,
         [
           { text: 'فروردین', callbackData: 'adm_up_month:1', colorVariant: curMonth === 1 ? 'emerald' : 'cyan' },
           { text: 'اردیبهشت', callbackData: 'adm_up_month:2', colorVariant: curMonth === 2 ? 'emerald' : 'cyan' },
@@ -1335,7 +1353,7 @@ function hasAnyAdminDefined(state: AppStateResponse): boolean {
     // 8. Admin 1-Click Quick Upload Sample Excel inside Bot (`adm_quick_seed_month:YYYY:MM`)
     if (payload.startsWith('adm_quick_seed_month:')) {
       const parts = payload.split(':');
-      const y = Number(parts[1]) || 1404;
+      const y = Number(parts[1]) || getCurrentSolarYearServer();
       const m = Number(parts[2]) || 9;
       const monthObj = PERSIAN_MONTHS.find((pm) => pm.number === m) || PERSIAN_MONTHS[8];
 
@@ -1415,7 +1433,7 @@ function hasAnyAdminDefined(state: AppStateResponse): boolean {
 
     // 8.5. Admin In-Chat File Picker Instructions (`open_admin_bot_file_picker`)
     if (payload === 'open_admin_bot_file_picker') {
-      const curYear = user.adminSession.uploadYear || 1404;
+      const curYear = user.adminSession.uploadYear || getCurrentSolarYearServer();
       const curMonth = user.adminSession.uploadMonth || 9;
       const monthObj = PERSIAN_MONTHS.find((m) => m.number === curMonth) || PERSIAN_MONTHS[8];
       user.adminSession.step = 'awaiting_file_upload';
@@ -2224,7 +2242,7 @@ function hasAnyAdminDefined(state: AppStateResponse): boolean {
   }
 
   if (payload.startsWith('select_year:')) {
-    const year = Number(payload.split(':')[1]) || 1404;
+    const year = Number(payload.split(':')[1]) || getCurrentSolarYearServer();
     user.selectedYear = year;
     const count = state.payslips.filter((p) => p.personnelCode === pCode && p.year === year).length;
     pushUserMsg(`📅 انتخاب سال ${toPersianDigitsServer(year)}`);
@@ -2241,7 +2259,7 @@ function hasAnyAdminDefined(state: AppStateResponse): boolean {
 
   if (payload.startsWith('select_month:')) {
     const parts = payload.split(':');
-    const year = Number(parts[1]) || 1404;
+    const year = Number(parts[1]) || getCurrentSolarYearServer();
     const month = Number(parts[2]) || 1;
     const monthObj = PERSIAN_MONTHS.find((m) => m.number === month) || PERSIAN_MONTHS[0];
 
@@ -2428,7 +2446,7 @@ async function startServer() {
         isChannelMember: true,
         verificationStatus: 'approved',
         isActive: true,
-        selectedYear: 1404,
+        selectedYear: getCurrentSolarYearServer(),
         joinedAt: `۱۴۰۴/۰۸/۱۵ - ${nowTimeStr()}`,
         lastInteractionAt: `۱۴۰۴/۰۸/۱۵ - ${nowTimeStr()}`,
       };
@@ -2558,7 +2576,7 @@ async function startServer() {
       isChannelMember: false,
       verificationStatus: 'unverified',
       isActive: true,
-      selectedYear: 1404,
+      selectedYear: getCurrentSolarYearServer(),
       joinedAt: `۱۴۰۴/۰۸/۱۵ - ${nowTimeStr()}`,
       lastInteractionAt: `۱۴۰۴/۰۸/۱۵ - ${nowTimeStr()}`,
     };
@@ -3618,7 +3636,7 @@ console.log("🚀 Payroll Bot (with Full In-Bot Admin Panel /admin) Started for:
             }
           }
 
-          const uploadYear = botUser.adminSession?.uploadYear || 1404;
+          const uploadYear = botUser.adminSession?.uploadYear || getCurrentSolarYearServer();
           const uploadMonth = botUser.adminSession?.uploadMonth || 9;
           const monthObj = PERSIAN_MONTHS.find((m) => m.number === uploadMonth) || PERSIAN_MONTHS[8];
 
@@ -3802,7 +3820,7 @@ console.log("🚀 Payroll Bot (with Full In-Bot Admin Panel /admin) Started for:
           }
           if (!pCode) pCode = '1001';
 
-          const uploadYear = botUser.adminSession?.uploadYear || 1404;
+          const uploadYear = botUser.adminSession?.uploadYear || getCurrentSolarYearServer();
           const uploadMonth = botUser.adminSession?.uploadMonth || 9;
           const monthObj = PERSIAN_MONTHS.find((m) => m.number === uploadMonth) || PERSIAN_MONTHS[8];
           const person = state.personnelDirectory.find((p) => p.personnelCode === pCode);
@@ -3912,7 +3930,7 @@ console.log("🚀 Payroll Bot (with Full In-Bot Admin Panel /admin) Started for:
             isChannelMember: checkIsAdmin,
             verificationStatus: checkIsAdmin ? 'approved' : 'unverified',
             isActive: true,
-            selectedYear: 1404,
+            selectedYear: getCurrentSolarYearServer(),
             joinedAt: `۱۴۰۴/۰۸/۱۵ - ${nowTimeStr()}`,
             lastInteractionAt: `۱۴۰۴/۰۸/۱۵ - ${nowTimeStr()}`,
           };

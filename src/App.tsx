@@ -322,9 +322,7 @@ export default function App() {
   const approvedUsersCount = state.users.filter(
     (u) => u.verificationStatus === 'approved' && u.isActive && !u.isAdmin
   ).length;
-  const totalNetPayroll = state.payslips
-    .filter((p) => p.year === 1404 && p.month === 8)
-    .reduce((acc, item) => acc + item.netPay, 0);
+  const totalNetPayroll = state.payslips.reduce((acc, item) => acc + item.netPay, 0);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col pb-16 md:pb-0">
