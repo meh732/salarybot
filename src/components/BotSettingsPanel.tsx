@@ -287,6 +287,69 @@ export const BotSettingsPanel: React.FC<BotSettingsPanelProps> = ({
             </div>
           )}
 
+          {/* STEP 0: WEB PANEL SECURITY (LOGIN USERNAME & PASSWORD) */}
+          <div className="bg-slate-950/90 border-2 border-emerald-500/40 rounded-2xl p-4 sm:p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-sm sm:text-base font-bold text-emerald-300 flex items-center gap-2">
+                  <Shield className="w-5 h-5 text-emerald-400" />
+                  <span>امنیت پنل وب: تعیین نام کاربری و رمز عبور ورود به پنل (قابل تنظیم در نصب، آپدیت و پنل)</span>
+                </h3>
+                <p className="text-xs text-slate-300 mt-1">
+                  با تعیین رمز عبور، هنگام باز کردن آدرس پنل وب، صفحه ورود نمایش داده می‌شود تا هیچ فرد غیرمجازی به اطلاعات فیش‌ها و پرسنل دسترسی نداشته باشد. (در اسکریپت <code>install.sh</code> هنگام نصب و آپدیت نیز قابل تعیین است):
+                </p>
+              </div>
+              <div className="shrink-0">
+                <span
+                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${
+                    formState.panelPassword && formState.panelPassword.trim().length > 0
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                      : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                  }`}
+                >
+                  {formState.panelPassword && formState.panelPassword.trim().length > 0
+                    ? '🔒 قفل ورود به پنل: فعال'
+                    : '🔓 بدون رمز (برای فعال‌سازی رمز وارد کنید)'}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs text-slate-300 mb-1.5 font-semibold">
+                  نام کاربری ورود به پنل وب (Username):
+                </label>
+                <input
+                  type="text"
+                  value={formState.panelUsername || 'admin'}
+                  onChange={(e) =>
+                    setFormState({ ...formState, panelUsername: e.target.value })
+                  }
+                  placeholder="مثال: admin"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white font-mono focus:outline-none focus:border-emerald-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-300 mb-1.5 font-semibold">
+                  رمز عبور ورود به پنل وب (Password):
+                </label>
+                <input
+                  type="text"
+                  value={formState.panelPassword || ''}
+                  onChange={(e) =>
+                    setFormState({
+                      ...formState,
+                      panelPassword: e.target.value,
+                      panelAuthEnabled: e.target.value.trim().length > 0,
+                    })
+                  }
+                  placeholder="رمز عبور دلخواه را وارد کنید (خالی = غیرفعال)"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white font-mono focus:outline-none focus:border-emerald-400"
+                />
+              </div>
+            </div>
+          </div>
+
           {/* STEP 1: ADMIN IDENTIFICATION SECTION (`کجا آیدی ادمین رو معرفی می‌کنم که فرقش با کاربرا معلوم بشه؟`) */}
           <div className="bg-slate-950/90 border-2 border-amber-500/40 rounded-2xl p-4 sm:p-5 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">

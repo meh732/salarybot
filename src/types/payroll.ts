@@ -120,6 +120,7 @@ export interface BotUser {
   nationalCode: string;
   phoneNumber: string;
   nationalCardImageUrl: string;
+  nationalCardFileId?: string;
   personnelCode: string | null;
   department: string;
   jobTitle: string;
@@ -146,6 +147,9 @@ export interface PersonnelRecord {
 
 export interface BotConfig {
   organizationName: string;
+  panelUsername?: string;
+  panelPassword?: string;
+  panelAuthEnabled?: boolean;
   adminMessengerIds?: string[];
   adminSecretCode?: string;
   adminClaimLocked?: boolean;

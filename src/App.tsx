@@ -2,11 +2,15 @@ import React, { useEffect, useState } from 'react';
 import {
   Download,
   FileSpreadsheet,
+  KeyRound,
+  Lock,
+  LogOut,
   Megaphone,
   MessageSquare,
   Settings,
   ShieldCheck,
   Upload,
+  User,
 } from 'lucide-react';
 import { BotSettingsPanel } from './components/BotSettingsPanel';
 import { BotSimulator } from './components/BotSimulator';
@@ -30,10 +34,29 @@ type ActiveSection =
   | 'broadcast'
   | 'settings';
 
+const PANEL_TOKEN_STORAGE_KEY = 'salarybot_panel_token';
+
+function getAuthHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const token =
+    typeof window !== 'undefined' ? localStorage.getItem(PANEL_TOKEN_STORAGE_KEY) || '' : '';
+  return {
+    ...extra,
+    ...(token ? { 'x-panel-token': token } : {}),
+  };
+}
+
 export default function App() {
   const [state, setState] = useState<AppStateResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [authRequired, setAuthRequired] = useState<boolean>(false);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
+  const [loginUsername, setLoginUsername] = useState<string>('admin');
+  const [loginPassword, setLoginPassword] = useState<string>('');
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
+  const [orgTitle, setOrgTitle] = useState<string>('شرکت رویال صنعت سامانه');
+
   const [activeSection, setActiveSection] = useState<ActiveSection>('workspace');
   const [selectedBotUserId, setSelectedBotUserId] = useState<string>('usr-admin-master');
   const [highlightedVerifyUserId, setHighlightedVerifyUserId] = useState<string | null>(null);
@@ -42,7 +65,30 @@ export default function App() {
   const fetchState = async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/state');
+      const authRes = await fetch('/api/auth/status', {
+        headers: getAuthHeaders(),
+      });
+      if (authRes.ok) {
+        const authData = await authRes.json();
+        setAuthRequired(Boolean(authData.authRequired));
+        if (authData.organizationName) setOrgTitle(authData.organizationName);
+        if (authData.authRequired && !authData.authenticated) {
+          setIsAuthenticated(false);
+          setLoading(false);
+          return;
+        }
+        setIsAuthenticated(true);
+      }
+
+      const res = await fetch('/api/state', {
+        headers: getAuthHeaders(),
+      });
+      if (res.status === 401) {
+        setAuthRequired(true);
+        setIsAuthenticated(false);
+        setLoading(false);
+        return;
+      }
       if (!res.ok) throw new Error('خطا در دریافت اطلاعات از سرور');
       const data = (await res.json()) as AppStateResponse;
       setState(data);
@@ -61,6 +107,47 @@ export default function App() {
     fetchState();
   }, []);
 
+  const handleLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError(null);
+    setIsLoggingIn(true);
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: loginUsername.trim(),
+          password: loginPassword.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        if (data.token) {
+          localStorage.setItem(PANEL_TOKEN_STORAGE_KEY, data.token);
+        }
+        setIsAuthenticated(true);
+        setLoginPassword('');
+        await fetchState();
+      } else {
+        setLoginError(data.error || 'نام کاربری یا رمز عبور اشتباه است.');
+      }
+    } catch {
+      setLoginError('خطا در برقراری ارتباط با سرور');
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST', headers: getAuthHeaders() });
+    } catch {
+      // ignore
+    }
+    localStorage.removeItem(PANEL_TOKEN_STORAGE_KEY);
+    setIsAuthenticated(false);
+  };
+
   const handleBotInteract = async (params: {
     userId: string;
     actionType: 'command' | 'callback' | 'text' | 'national_card_upload' | 'join_channel';
@@ -73,7 +160,7 @@ export default function App() {
     try {
       const res = await fetch('/api/bot/interact', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(params),
       });
       const data = await res.json();
@@ -94,7 +181,7 @@ export default function App() {
     try {
       const res = await fetch('/api/bot/admin-upload-in-chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(params),
       });
       const data = await res.json();
@@ -111,7 +198,7 @@ export default function App() {
     try {
       const res = await fetch('/api/users/create-sim-user', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ platform }),
       });
       const data = await res.json();
@@ -134,7 +221,7 @@ export default function App() {
   }) => {
     const res = await fetch('/api/users/verify', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(params),
     });
     const data = await res.json();
@@ -147,7 +234,7 @@ export default function App() {
   const handleToggleUserActive = async (userId: string, isActive: boolean) => {
     const res = await fetch('/api/users/toggle-active', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ userId, isActive }),
     });
     const data = await res.json();
@@ -164,7 +251,7 @@ export default function App() {
   }) => {
     const res = await fetch('/api/users/update-code', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(params),
     });
     const data = await res.json();
@@ -179,7 +266,7 @@ export default function App() {
   ) => {
     const res = await fetch('/api/payslips/batch-upload', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ items, notifyUsers }),
     });
     const data = await res.json();
@@ -191,6 +278,7 @@ export default function App() {
   const handleDeletePayslip = async (id: string) => {
     const res = await fetch(`/api/payslips/${id}`, {
       method: 'DELETE',
+      headers: getAuthHeaders(),
     });
     const data = await res.json();
     if (data.ok && data.state) {
@@ -208,7 +296,7 @@ export default function App() {
   }): Promise<number> => {
     const res = await fetch('/api/broadcast', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(params),
     });
     const data = await res.json();
@@ -222,11 +310,19 @@ export default function App() {
   const handleSaveConfig = async (newConfig: Partial<BotConfig>) => {
     const res = await fetch('/api/config', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(newConfig),
     });
     const data = await res.json();
     if (data.ok && data.state) {
+      if (data.panelToken) {
+        localStorage.setItem(PANEL_TOKEN_STORAGE_KEY, data.panelToken);
+        setAuthRequired(true);
+        setIsAuthenticated(true);
+      } else if (newConfig.panelPassword !== undefined && !newConfig.panelPassword.trim()) {
+        localStorage.removeItem(PANEL_TOKEN_STORAGE_KEY);
+        setAuthRequired(false);
+      }
       setState(data.state);
     }
   };
@@ -235,37 +331,30 @@ export default function App() {
     try {
       const res = await fetch('/api/database/wipe', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ factoryReset }),
       });
       const data = await res.json();
       if (data.ok && data.state) {
         setState(data.state);
-        alert(
-          factoryReset
-            ? '✅ سامانه ۱۰۰٪ ریست فکتوری شد و تمامی داده‌ها، پرسنل، فیش‌ها و توکن‌ها خام خام شدند.'
-            : '✅ داده‌های پرسنل و فیش‌های حقوقی با موفقیت پاکسازی شدند.'
-        );
-      } else {
-        alert(data.error || 'خطا در پاکسازی دیتابیس');
       }
-    } catch {
-      alert('خطا در ارتباط با سرور هنگام پاکسازی دیتابیس');
+    } catch (err) {
+      console.error('Error wiping database:', err);
     }
   };
 
   const handleSendBackupNow = async () => {
     try {
-      const res = await fetch('/api/database/send-backup', { method: 'POST' });
+      const res = await fetch('/api/database/send-backup', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
       const data = await res.json();
       if (data.ok && data.state) {
         setState(data.state);
-        alert(data.message || '✅ فایل بکاپ به چت تلگرام/بله ادمین ارسال شد.');
-      } else {
-        alert(data.error || 'خطا در ارسال بکاپ به چت ادمین');
       }
-    } catch {
-      alert('خطا در ارتباط با سرور هنگام ارسال بکاپ');
+    } catch (err) {
+      console.error('Error sending backup:', err);
     }
   };
 
@@ -275,22 +364,19 @@ export default function App() {
       const parsed = JSON.parse(text);
       const res = await fetch('/api/database/restore', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(parsed),
       });
       const data = await res.json();
       if (data.ok && data.state) {
         setState(data.state);
-        alert('✅ دیتابیس با موفقیت از فایل بکاپ ۱۰۰٪ بازگردانی گردید!');
-      } else {
-        alert(data.error || 'فایل بکاپ نامعتبر است.');
       }
-    } catch {
-      alert('فرمت فایل بکاپ ارسالی معتبر نیست.');
+    } catch (err) {
+      console.error('Error restoring database:', err);
     }
   };
 
-  if (loading && !state) {
+  if (loading && !state && isAuthenticated) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
         <div className="max-w-md w-full space-y-4 text-center">
@@ -298,6 +384,87 @@ export default function App() {
           <p className="text-sm font-semibold text-slate-300">
             در حال بارگذاری سامانه مدیریت بات فیش حقوقی تلگرام و بله...
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (authRequired && !isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 sm:p-6">
+        <div className="w-full max-w-md bg-slate-900/95 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl space-y-6">
+          <div className="text-center space-y-2">
+            <div className="w-14 h-14 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 flex items-center justify-center mx-auto text-emerald-400">
+              <Lock className="w-7 h-7" />
+            </div>
+            <h1 className="text-lg sm:text-xl font-extrabold text-white">
+              ورود به پنل مدیریت سامانه فیش حقوقی
+            </h1>
+            <p className="text-xs text-slate-400">
+              {orgTitle} — دسترسی محدود به مدیران مجاز سازمان
+            </p>
+          </div>
+
+          {loginError && (
+            <div className="bg-rose-950/70 border border-rose-500/40 rounded-xl p-3 text-xs text-rose-200 text-center">
+              {loginError}
+            </div>
+          )}
+
+          <form onSubmit={handleLoginSubmit} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                نام کاربری (Username):
+              </label>
+              <div className="relative">
+                <User className="w-4 h-4 text-slate-400 absolute right-3.5 top-3" />
+                <input
+                  type="text"
+                  value={loginUsername}
+                  onChange={(e) => setLoginUsername(e.target.value)}
+                  placeholder="نام کاربری (پیش‌فرض: admin)"
+                  autoComplete="username"
+                  required
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl pr-10 pl-3.5 py-2.5 text-sm text-white font-mono focus:outline-none focus:border-emerald-400"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                رمز عبور (Password):
+              </label>
+              <div className="relative">
+                <KeyRound className="w-4 h-4 text-slate-400 absolute right-3.5 top-3" />
+                <input
+                  type="password"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  placeholder="رمز عبور پنل مدیریت"
+                  autoComplete="current-password"
+                  required
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl pr-10 pl-3.5 py-2.5 text-sm text-white font-mono focus:outline-none focus:border-emerald-400"
+                />
+              </div>
+            </div>
+
+            <GlassButton
+              type="submit"
+              variant="emerald"
+              size="lg"
+              fullWidth
+              disabled={isLoggingIn}
+            >
+              <Lock className="w-4 h-4" />
+              <span>{isLoggingIn ? 'در حال بررسی...' : 'ورود به پنل مدیریت'}</span>
+            </GlassButton>
+          </form>
+
+          <div className="bg-slate-950/90 border border-slate-800 rounded-xl p-3 text-[11px] text-slate-400 leading-relaxed">
+            💡 <strong>راهنمای بازیابی یا تغییر رمز در سرور لینوکس:</strong> در ترمینال سرور دستور{' '}
+            <code className="text-emerald-300">salarybot</code> را وارد کرده و گزینه{' '}
+            <code className="text-amber-300">11</code> (یا گزینه <code className="text-cyan-300">2</code> هنگام آپدیت) را انتخاب نمایید.
+          </div>
         </div>
       </div>
     );
@@ -418,6 +585,17 @@ export default function App() {
             <Upload className="w-3.5 h-3.5" />
             <span>آپلود اکسل / PDF فیش</span>
           </GlassButton>
+          {(authRequired || Boolean(state.config.panelPassword)) && (
+            <button
+              type="button"
+              onClick={handleLogout}
+              title="قفل و خروج از پنل مدیریت"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/40 transition-colors cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">خروج</span>
+            </button>
+          )}
         </div>
       </header>
 
