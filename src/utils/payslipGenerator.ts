@@ -1,5 +1,11 @@
 import * as XLSX from 'xlsx';
 import { PayslipItem, PERSIAN_MONTHS } from '../types/payroll';
+import {
+  extractCleanPersonnelCode,
+  parseExcelWorkbookCommon,
+} from './excelPayrollScanner';
+
+export { extractCleanPersonnelCode };
 
 export function toPersianDigits(val: string | number | undefined | null): string {
   if (val === undefined || val === null) return '';
@@ -587,9 +593,9 @@ export function downloadSamplePayrollExcel(year = 1405, month = 6): void {
 }
 
 /**
- * Parses an uploaded Excel (.xlsx / .xls / .csv) file into structured PayslipItem objects,
- * matching Persian or English column headers flexibly, with full support for converted PDF reports,
- * transposed key-value layouts, and offset header rows.
+ * Parses an uploaded Excel (.xlsx / .xls / .csv) file into structured PayslipItem objects.
+ * Scans ALL sheets in the workbook (1 to 100+ sheets), supporting both row/form-layout payslips
+ * (like "فیش حقوقی پرسنل شرکت رویال صنعت سامانه" / باستان.xlsx) and multi-row tabular sheets.
  */
 export async function parseExcelPayrollFile(
   file: File,
@@ -598,291 +604,46 @@ export async function parseExcelPayrollFile(
 ): Promise<Omit<PayslipItem, 'id' | 'createdAt'>[]> {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
-  const sheetName = workbook.SheetNames[0];
-  const sheet = workbook.Sheets[sheetName];
+  const result = parseExcelWorkbookCommon(workbook, defaultYear, defaultMonth, file.name);
+  return result.payslips;
+}
 
-  const parseNum = (v: unknown, fallback = 0): number => {
-    if (typeof v === 'number') return v;
-    if (!v) return fallback;
-    const cleaned = toEnglishDigits(String(v)).replace(/[^0-9.-]/g, '');
-    const n = Number(cleaned);
-    return Number.isFinite(n) ? n : fallback;
-  };
-
-  const getField = (row: Record<string, unknown>, candidates: string[]): unknown => {
-    const keys = Object.keys(row);
-    for (const c of candidates) {
-      const exact = keys.find((k) => k.trim() === c);
-      if (exact !== undefined && row[exact] !== '') return row[exact];
-      const partial = keys.find((k) => k.trim().includes(c));
-      if (partial !== undefined && row[partial] !== '') return row[partial];
-    }
-    return '';
-  };
-
-  const processRows = (rawRows: Record<string, unknown>[]): Omit<PayslipItem, 'id' | 'createdAt'>[] => {
-    const items: Omit<PayslipItem, 'id' | 'createdAt'>[] = [];
-
-    for (const row of rawRows) {
-      const rawCode = getField(row, ['شماره پرسنلی', 'کد پرسنلی', 'کدپرسنلی', 'personnelCode', 'code', 'کد']);
-      const personnelCode = toEnglishDigits(String(rawCode || '').trim());
-      if (!personnelCode) continue;
-
-      const employeeName = String(
-        getField(row, ['نام و نام خانوادگی', 'نام کارمند', 'نام پرسنل', 'نام', 'employeeName', 'name']) || `پرسنل ${personnelCode}`
-      ).trim();
-      const nationalCode = toEnglishDigits(
-        String(getField(row, ['کد ملی', 'شماره ملی', 'nationalCode']) || '0010000000').trim()
-      );
-      const department = String(
-        getField(row, ['واحد سازمانی', 'واحد', 'بخش', 'department']) || 'رویال صنعت سامانه'
-      ).trim();
-      const jobTitle = String(
-        getField(row, ['سمت شغلی', 'سمت', 'عنوان شغلی', 'jobTitle']) || 'سرپرست تولید'
-      ).trim();
-      const bankAccount = String(
-        getField(row, ['شماره حساب', 'شماره شبا', 'حساب', 'bankAccount']) || 'IR420170000000109283746501'
-      ).trim();
-
-      const year = parseNum(getField(row, ['سال', 'year']), defaultYear) || defaultYear;
-      const month = parseNum(getField(row, ['ماه', 'month']), defaultMonth) || defaultMonth;
-      const monthObj = PERSIAN_MONTHS.find((m) => m.number === month) || PERSIAN_MONTHS[0];
-
-      const workingDays = parseNum(getField(row, ['کارکرد / روز', 'روز کارکرد', 'کارکرد', 'workingDays']), 31);
-      const overtimeHoursStr = String(getField(row, ['ساعت اضافه‌کار', 'اضافه کار ساعت', 'overtimeHoursStr']) || '').trim();
-      const holidayHoursStr = String(getField(row, ['ساعت تعطیل کاری', 'تعطیل کاری ساعت', 'holidayHoursStr']) || '').trim();
-      const leaveHoursStr = String(getField(row, ['مانده مرخصی', 'مرخصی ساعت', 'leaveHoursStr']) || '').trim();
-
-      const overtimeHours = parseNum(getField(row, ['ساعت اضافه‌کار عددی', 'overtimeHours']), 114);
-
-      const baseSalary = parseNum(getField(row, ['حقوق پایه', 'پایه', 'baseSalary']), 195436436);
-      const specializationPay = parseNum(getField(row, ['حق تخصص', 'تخصص', 'specializationPay']), 110589381);
-      const groceryAllowance = parseNum(getField(row, ['حق بن', 'بن کارگری', 'groceryAllowance']), 22000000);
-      const housingAllowance = parseNum(getField(row, ['حق مسکن', 'مسکن', 'housingAllowance']), 30000000);
-      const maritalAllowance = parseNum(getField(row, ['حق تاهل', 'تاهل', 'maritalAllowance']), 5000000);
-      const childAllowance = parseNum(getField(row, ['حق اولاد', 'عائله‌مندی', 'childAllowance']), 16625550);
-      const seniorityPay = parseNum(getField(row, ['پایه سنوات', 'سنوات', 'seniorityPay']), 34317060);
-      const missionPay = parseNum(getField(row, ['حق ماموریت', 'ماموریت', 'missionPay']), 0);
-      const overtimePay = parseNum(getField(row, ['مبلغ اضافه‌کار', 'اضافه کار', 'overtimePay']), 284274933);
-      const holidayPay = parseNum(getField(row, ['مبلغ تعطیل کاری', 'تعطیل کاری', 'holidayPay']), 142837651);
-      const bonusPay = parseNum(getField(row, ['پاداش و کارانه', 'کارانه', 'bonusPay']), 0);
-      const extraDayPay = parseNum(getField(row, ['یک روز اضافه ماه', 'اضافه ماه', 'extraDayPay']), 13798948);
-
-      const totalEarnings =
-        parseNum(getField(row, ['جمع حقوق و دستمزد', 'جمع کل مزایا', 'totalEarnings']), 0) ||
-        baseSalary +
-          specializationPay +
-          groceryAllowance +
-          housingAllowance +
-          maritalAllowance +
-          childAllowance +
-          seniorityPay +
-          missionPay +
-          overtimePay +
-          holidayPay +
-          bonusPay +
-          extraDayPay;
-
-      const insuranceDeduction = parseNum(getField(row, ['بیمه تامین اجتماعی', 'حق بیمه', 'insuranceDeduction']), 27624519);
-      const supplementaryInsurance = parseNum(getField(row, ['بیمه تکمیلی', 'supplementaryInsurance']), 6820000);
-      const taxDeduction = parseNum(getField(row, ['مالیات حقوق', 'مالیات', 'taxDeduction']), 0);
-      const loanDeduction = parseNum(getField(row, ['قسط وام', 'وام', 'loanDeduction']), 0);
-      const lunchDeduction = parseNum(getField(row, ['ناهار', 'هزینه ناهار', 'lunchDeduction']), 30000000);
-      const otherDeduction = parseNum(getField(row, ['کسر کار', 'مساعده', 'otherDeduction']), 0);
-
-      const totalDeductions =
-        parseNum(getField(row, ['جمع کسورات', 'جمع کل کسورات', 'totalDeductions']), 0) ||
-        insuranceDeduction + supplementaryInsurance + taxDeduction + loanDeduction + lunchDeduction + otherDeduction;
-
-      const netPay =
-        parseNum(getField(row, ['خالص پرداختی', 'قابل پرداخت', 'netPay']), 0) ||
-        Math.max(0, totalEarnings - totalDeductions);
-
-      items.push({
-        personnelCode,
-        employeeName,
-        nationalCode,
-        department,
-        jobTitle,
-        bankAccount,
-        year,
-        month,
-        monthName: monthObj.name,
-        workingDays,
-        overtimeHours,
-        overtimeHoursStr: overtimeHoursStr || '114:33:00',
-        holidayHoursStr: holidayHoursStr || '44:46:00',
-        leaveHoursStr,
-        baseSalary,
-        specializationPay,
-        housingAllowance,
-        groceryAllowance,
-        maritalAllowance,
-        childAllowance,
-        seniorityPay,
-        missionPay,
-        overtimePay,
-        holidayPay,
-        extraDayPay,
-        bonusPay,
-        totalEarnings,
-        insuranceDeduction,
-        supplementaryInsurance,
-        taxDeduction,
-        loanDeduction,
-        lunchDeduction,
-        otherDeduction,
-        totalDeductions,
-        netPay,
-        sourceType: 'excel',
-      });
-    }
-
-    return items;
-  };
-
-  // Tier 1: Standard Table Parsing
-  const rawRowsStandard = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
-  let results = processRows(rawRowsStandard);
-  if (results.length > 0) return results;
-
-  // Tier 2: Offset Header Auto-Detection (Skip Title Rows)
-  const matrix2D = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1 });
-  for (let rIdx = 0; rIdx < Math.min(15, matrix2D.length); rIdx++) {
-    const rowCells = (matrix2D[rIdx] || []).map((c) => String(c || '').trim());
-    const hasHeaderKey = rowCells.some(
-      (cell) =>
-        cell.includes('شماره پرسنلی') ||
-        cell.includes('کد پرسنلی') ||
-        cell.includes('کدپرسنلی') ||
-        cell.includes('personnelCode') ||
-        cell.includes('کد پرسنل')
-    );
-
-    if (hasHeaderKey) {
-      const rawRowsOffset = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { range: rIdx, defval: '' });
-      results = processRows(rawRowsOffset);
-      if (results.length > 0) return results;
-    }
-  }
-
-  // Tier 3: Full Matrix Scan (Key-Value / Transposed Report Converter Support)
-  let extractedCode = '';
-  let extractedName = '';
-  let extractedNationalCode = '0014829103';
-  let extractedYear = defaultYear || 1405;
-  let extractedMonth = defaultMonth || 6;
-
-  let baseSalary = 195436436;
-  let specializationPay = 110589381;
-  let groceryAllowance = 22000000;
-  let housingAllowance = 30000000;
-  let maritalAllowance = 5000000;
-  let childAllowance = 16625550;
-  let seniorityPay = 34317060;
-  let overtimePay = 284274933;
-  let holidayPay = 142837651;
-  let extraDayPay = 13798948;
-  let totalEarnings = 854879959;
-
-  let insuranceDeduction = 27624519;
-  let supplementaryInsurance = 6820000;
-  let lunchDeduction = 30000000;
-  let totalDeductions = 64444519;
-  let netPay = 790435440;
-
-  let workingDays = 31;
-  let overtimeHoursStr = '114:33:00';
-  let holidayHoursStr = '44:46:00';
-
-  for (let r = 0; r < matrix2D.length; r++) {
-    const row = matrix2D[r] || [];
-    for (let c = 0; c < row.length; c++) {
-      const valStr = String(row[c] || '').trim();
-      const nextValStr = String(row[c + 1] || row[c - 1] || '').trim();
-
-      if (valStr.includes('شماره پرسنلی') || valStr.includes('کد پرسنلی')) {
-        const match = toEnglishDigits(`${valStr} ${nextValStr}`).match(/\b(\d{4,8})\b/);
-        if (match) extractedCode = match[1];
-      }
-
-      if (valStr.includes('نام و نام خانوادگی')) {
-        const parts = valStr.split(':');
-        if (parts.length > 1 && parts[1].trim()) {
-          extractedName = parts[1].trim();
-        } else if (nextValStr && !nextValStr.includes('شماره')) {
-          extractedName = nextValStr;
-        }
-      }
-
-      if (valStr.includes('شهریور')) extractedMonth = 6;
-      if (valStr.includes('۱۴۰۵') || valStr.includes('1405')) extractedYear = 1405;
-
-      if (valStr.includes('پایه') && !valStr.includes('سنوات')) {
-        const n = parseNum(nextValStr);
-        if (n > 1000000) baseSalary = n;
-      }
-      if (valStr.includes('حق تخصص') || valStr.includes('تخصص')) {
-        const n = parseNum(nextValStr);
-        if (n > 1000000) specializationPay = n;
-      }
-      if (valStr.includes('خالص پرداختی') || valStr.includes('پرداختی')) {
-        const n = parseNum(nextValStr);
-        if (n > 1000000) netPay = n;
-      }
-    }
-  }
-
-  // If code is not explicitly in cells, check file name or fallback to 971050
-  if (!extractedCode) {
-    const fnMatch = toEnglishDigits(file.name).match(/\b(971\d{3}|10\d{2}|\d{4,8})\b/);
-    extractedCode = fnMatch ? fnMatch[1] : '971050';
-  }
-
-  if (!extractedName) {
-    extractedName = extractedCode === '971050' ? 'اکبر اسمعیلی' : `پرسنل ${extractedCode}`;
-  }
-
-  const monthObj = PERSIAN_MONTHS.find((m) => m.number === extractedMonth) || PERSIAN_MONTHS[5];
-
-  results.push({
-    personnelCode: extractedCode,
-    employeeName: extractedName,
-    nationalCode: extractedNationalCode,
-    department: 'رویال صنعت سامانه - مدیریت فنی',
-    jobTitle: 'سرپرست تولید و ماشین‌آلات',
-    bankAccount: 'IR420170000000109283746501',
-    year: extractedYear,
-    month: extractedMonth,
-    monthName: monthObj.name,
-    workingDays,
-    overtimeHours: 114,
-    overtimeHoursStr,
-    holidayHoursStr,
-    leaveHoursStr: '-',
-    baseSalary,
-    specializationPay,
-    housingAllowance,
-    groceryAllowance,
-    maritalAllowance,
-    childAllowance,
-    seniorityPay,
-    missionPay: 0,
-    overtimePay,
-    holidayPay,
-    extraDayPay,
-    bonusPay: 0,
-    totalEarnings,
-    insuranceDeduction,
-    supplementaryInsurance,
-    taxDeduction: 0,
-    loanDeduction: 0,
-    lunchDeduction,
-    otherDeduction: 0,
-    totalDeductions,
-    netPay,
-    sourceType: 'excel',
+/**
+ * Parses an uploaded PDF payslip file (single-page or multi-page Excel-exported PDF like "حقوق رویال 405.pdf")
+ * via the server-side PDF stream scanner so every page's exact personnel code, name, and Rial amounts are extracted.
+ */
+export async function parsePdfPayrollFile(
+  file: File,
+  defaultYear: number,
+  defaultMonth: number
+): Promise<Omit<PayslipItem, 'id' | 'createdAt'>[]> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('خطا در خواندن فایل PDF'));
+    reader.readAsDataURL(file);
   });
 
-  return results;
+  try {
+    const res = await fetch('/api/payslips/parse-pdf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pdfDataUrl: dataUrl,
+        fileName: file.name,
+        defaultYear,
+        defaultMonth,
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.payslips) && data.payslips.length > 0) {
+        return data.payslips;
+      }
+    }
+  } catch (err) {
+    console.error('Error parsing PDF on server:', err);
+  }
+  return [];
 }
+

@@ -20,10 +20,12 @@ import {
   downloadPayslipImage,
   downloadPayslipPdf,
   downloadSamplePayrollExcel,
+  extractCleanPersonnelCode,
   formatRial,
   generatePayslipSvgDataUrl,
   getCurrentSolarYear,
   parseExcelPayrollFile,
+  parsePdfPayrollFile,
   SOLAR_YEARS,
   toEnglishDigits,
   toPersianDigits,
@@ -57,6 +59,7 @@ export const PayslipUploader: React.FC<PayslipUploaderProps> = ({
   const [pdfFileName, setPdfFileName] = useState<string>('');
   const [pdfDataUrl, setPdfDataUrl] = useState<string>('');
   const [imageDataUrl, setImageDataUrl] = useState<string>('');
+  const [parsedSinglePdfItem, setParsedSinglePdfItem] = useState<Omit<PayslipItem, 'id' | 'createdAt'> | null>(null);
 
   // Archive Filter State
   const [filterYear, setFilterYear] = useState<number | 'all'>('all');
@@ -71,16 +74,25 @@ export const PayslipUploader: React.FC<PayslipUploaderProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const parsed = await parseExcelPayrollFile(file, selectedYear, selectedMonth);
+      const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+      const parsed = isPdf
+        ? await parsePdfPayrollFile(file, selectedYear, selectedMonth)
+        : await parseExcelPayrollFile(file, selectedYear, selectedMonth);
+      if (parsed.length === 0) {
+        setStatusBanner(
+          `⚠️ هیچ فیش حقوقی در فایل «${file.name}» شناسایی نشد. لطفاً از وجود شماره پرسنلی و خالص پرداختی در شیت‌های فایل اطمینان حاصل فرمایید.`
+        );
+        return;
+      }
       setStagedItems(parsed);
       setStatusBanner(
-        `فایل اکسل «${file.name}» با موفقیت خوانده شد و ${toPersianDigits(
+        `✅ فایل «${file.name}» با موفقیت اسکن شد و ${toPersianDigits(
           parsed.length
-        )} فیش حقوقی بر اساس کد پرسنلی استخراج گردید. جهت ثبت نهایی روی دکمه سبز پایین کلیک کنید.`
+        )} فیش حقوقی مجزا بر اساس کد پرسنلی کامل استخراج گردید. جهت ثبت نهایی روی دکمه سبز پایین کلیک کنید.`
       );
     } catch (err) {
       setStatusBanner(
-        `خطا در خواندن فایل اکسل: ${err instanceof Error ? err.message : 'فرمت نامعتبر'}`
+        `خطا در خواندن فایل: ${err instanceof Error ? err.message : 'فرمت نامعتبر'}`
       );
     }
   };
@@ -162,24 +174,49 @@ export const PayslipUploader: React.FC<PayslipUploaderProps> = ({
     setStagedItems([]);
   };
 
-  const handleDirectPdfOrImageFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleDirectPdfOrImageFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setPdfFileName(file.name);
+    setParsedSinglePdfItem(null);
 
-    // Auto-detect personnel code from filename (e.g., "1001.pdf" or "EMP-1003-1404.pdf")
-    const codeMatch = toEnglishDigits(file.name).match(/\b(10\d{2}|\d{3,6})\b/);
-    if (codeMatch) {
-      setPdfPersonnelCode(codeMatch[1]);
+    const detectedFromName = extractCleanPersonnelCode(file.name);
+    if (detectedFromName) {
+      setPdfPersonnelCode(detectedFromName);
     }
 
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       if (typeof reader.result === 'string') {
+        const dataUrl = reader.result;
         if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
-          setPdfDataUrl(reader.result);
+          setPdfDataUrl(dataUrl);
+          try {
+            const pdfItems = await parsePdfPayrollFile(file, selectedYear, selectedMonth);
+            if (pdfItems.length > 1) {
+              setStagedItems(pdfItems);
+              setStatusBanner(
+                `✅ فایل PDF چندصفحه‌ای «${file.name}» اسکن شد و ${toPersianDigits(
+                  pdfItems.length
+                )} فیش حقوقی مجزا با کدهای پرسنلی دقیق (${pdfItems
+                  .slice(0, 4)
+                  .map((p) => p.personnelCode)
+                  .join('، ')}) در بخش بارگذاری گروهی آماده ثبت نهایی گردید!`
+              );
+            } else if (pdfItems.length === 1) {
+              const single = pdfItems[0];
+              setParsedSinglePdfItem(single);
+              setPdfPersonnelCode(single.personnelCode);
+              setPdfNetPay(String(single.netPay));
+              setStatusBanner(
+                `✅ اطلاعات فیش PDF به طور خودکار اسکن شد: کد پرسنلی ${single.personnelCode} (${single.employeeName}) — خالص پرداختی: ${formatRial(single.netPay)}`
+              );
+            }
+          } catch {
+            // Ignore PDF parse error on scanned image PDFs
+          }
         } else if (file.type.startsWith('image/')) {
-          setImageDataUrl(reader.result);
+          setImageDataUrl(dataUrl);
         }
       }
     };
@@ -194,59 +231,75 @@ export const PayslipUploader: React.FC<PayslipUploaderProps> = ({
     const person = state.personnelDirectory.find((p) => p.personnelCode === cleanCode);
     const monthObj = PERSIAN_MONTHS.find((m) => m.number === selectedMonth) || PERSIAN_MONTHS[0];
     const netAmount = Number(toEnglishDigits(pdfNetPay).replace(/[^0-9]/g, '')) || 245000000;
-    const baseSalary = Math.round(netAmount * 0.72);
-    const housingAllowance = 18000000;
-    const groceryAllowance = 22000000;
-    const overtimePay = Math.round(netAmount * 0.18);
-    const bonusPay = Math.round(netAmount * 0.15);
-    const totalEarnings = baseSalary + housingAllowance + groceryAllowance + overtimePay + bonusPay;
-    const insuranceDeduction = Math.round(totalEarnings * 0.07);
-    const taxDeduction = Math.round(totalEarnings * 0.05);
-    const totalDeductions = Math.max(0, totalEarnings - netAmount);
 
-    const item: Omit<PayslipItem, 'id' | 'createdAt'> = {
-      personnelCode: cleanCode,
-      employeeName: person?.fullName || `پرسنل کد ${cleanCode}`,
-      nationalCode: person?.nationalCode || '0014829103',
-      department: person?.department || 'واحد عملیات سازمانی',
-      jobTitle: person?.jobTitle || 'کارشناس ارشد',
-      bankAccount: person?.bankAccount || 'IR420170000000109283746501',
-      year: selectedYear,
-      month: selectedMonth,
-      monthName: monthObj.name,
-      workingDays: 30,
-      overtimeHours: 22,
-      baseSalary,
-      housingAllowance,
-      groceryAllowance,
-      childAllowance: 14500000,
-      overtimePay,
-      bonusPay,
-      totalEarnings,
-      insuranceDeduction,
-      taxDeduction,
-      loanDeduction: Math.max(0, totalDeductions - insuranceDeduction - taxDeduction),
-      otherDeduction: 0,
-      totalDeductions,
-      netPay: netAmount,
-      sourceType: 'pdf_image',
-      customPdfUrl: pdfDataUrl || undefined,
-      customPdfFileName:
-        pdfFileName || `Payslip-${cleanCode}-${selectedYear}-${String(selectedMonth).padStart(2, '0')}.pdf`,
-      customImageUrl: imageDataUrl || undefined,
-    };
+    let item: Omit<PayslipItem, 'id' | 'createdAt'>;
+    if (parsedSinglePdfItem && parsedSinglePdfItem.personnelCode === cleanCode) {
+      item = {
+        ...parsedSinglePdfItem,
+        personnelCode: cleanCode,
+        netPay: netAmount || parsedSinglePdfItem.netPay,
+        sourceType: 'pdf_image',
+        customPdfUrl: pdfDataUrl || undefined,
+        customPdfFileName:
+          pdfFileName || `Payslip-${cleanCode}-${selectedYear}-${String(selectedMonth).padStart(2, '0')}.pdf`,
+        customImageUrl: imageDataUrl || undefined,
+      };
+    } else {
+      const baseSalary = Math.round(netAmount * 0.72);
+      const housingAllowance = 18000000;
+      const groceryAllowance = 22000000;
+      const overtimePay = Math.round(netAmount * 0.18);
+      const bonusPay = Math.round(netAmount * 0.15);
+      const totalEarnings = baseSalary + housingAllowance + groceryAllowance + overtimePay + bonusPay;
+      const insuranceDeduction = Math.round(totalEarnings * 0.07);
+      const taxDeduction = Math.round(totalEarnings * 0.05);
+      const totalDeductions = Math.max(0, totalEarnings - netAmount);
+
+      item = {
+        personnelCode: cleanCode,
+        employeeName: person?.fullName || `پرسنل کد ${cleanCode}`,
+        nationalCode: person?.nationalCode || '0014829103',
+        department: person?.department || 'واحد عملیات سازمانی',
+        jobTitle: person?.jobTitle || 'کارشناس ارشد',
+        bankAccount: person?.bankAccount || 'IR420170000000109283746501',
+        year: selectedYear,
+        month: selectedMonth,
+        monthName: monthObj.name,
+        workingDays: 30,
+        overtimeHours: 22,
+        baseSalary,
+        housingAllowance,
+        groceryAllowance,
+        childAllowance: 14500000,
+        overtimePay,
+        bonusPay,
+        totalEarnings,
+        insuranceDeduction,
+        taxDeduction,
+        loanDeduction: Math.max(0, totalDeductions - insuranceDeduction - taxDeduction),
+        otherDeduction: 0,
+        totalDeductions,
+        netPay: netAmount,
+        sourceType: 'pdf_image',
+        customPdfUrl: pdfDataUrl || undefined,
+        customPdfFileName:
+          pdfFileName || `Payslip-${cleanCode}-${selectedYear}-${String(selectedMonth).padStart(2, '0')}.pdf`,
+        customImageUrl: imageDataUrl || undefined,
+      };
+    }
 
     await onBatchUploadPayslips([item], notifyOnUpload);
     setStatusBanner(
       `✅ فایل PDF و تصویر فیش حقوقی مربوط به کد پرسنلی ${toPersianDigits(
         cleanCode
-      )} (${item.employeeName}) برای ${monthObj.name} ${toPersianDigits(
-        selectedYear
+      )} (${item.employeeName}) برای ${item.monthName} ${toPersianDigits(
+        item.year
       )} با موفقیت در پروفایل ایشان قرار گرفت!`
     );
     setPdfFileName('');
     setPdfDataUrl('');
     setImageDataUrl('');
+    setParsedSinglePdfItem(null);
   };
 
   const filteredPayslips = state.payslips.filter((p) => {

@@ -1,8 +1,13 @@
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
+import zlib from 'zlib';
 import * as XLSX from 'xlsx';
 import { createServer as createViteServer } from 'vite';
+import {
+  extractCleanPersonnelCode,
+  parseExcelWorkbookCommon,
+} from './src/utils/excelPayrollScanner';
 import {
   AppStateResponse,
   BotButton,
@@ -50,6 +55,239 @@ function getCurrentSolarYearServer(): number {
     // ignore
   }
   return 1405;
+}
+
+/**
+ * Extracts structured payslips from a single-page or multi-page PDF buffer
+ * (such as Excel-exported PDFs like "حقوق رویال 405.pdf" or "فش.pdf")
+ * by decoding ToUnicode CMaps and spatial text coordinates per page.
+ */
+function parsePdfPayrollBufferServer(
+  nodeBuf: Buffer,
+  defaultYear: number,
+  defaultMonth: number,
+  fileName = ''
+): Omit<PayslipItem, 'id' | 'createdAt'>[] {
+  try {
+    const rawStr = nodeBuf.toString('latin1');
+    const objects = new Map<number, { dict: string; stream: Buffer | null }>();
+    const objRegex = /(\d+)\s+0\s+obj\b([\s\S]*?)endobj/g;
+    let m: RegExpExecArray | null;
+    while ((m = objRegex.exec(rawStr)) !== null) {
+      const objId = parseInt(m[1], 10);
+      const body = m[2];
+      const streamIdx = body.indexOf('stream');
+      const endStreamIdx = body.lastIndexOf('endstream');
+      if (streamIdx !== -1 && endStreamIdx !== -1 && endStreamIdx > streamIdx) {
+        const dict = body.slice(0, streamIdx);
+        let startOffset = m.index + m[0].indexOf('stream') + 6;
+        if (rawStr[startOffset] === '\r' && rawStr[startOffset + 1] === '\n') startOffset += 2;
+        else if (rawStr[startOffset] === '\n' || rawStr[startOffset] === '\r') startOffset += 1;
+        const endOffset = m.index + m[0].lastIndexOf('endstream');
+        let streamBuf = nodeBuf.subarray(startOffset, endOffset);
+        if (streamBuf.length > 0 && streamBuf[streamBuf.length - 1] === 0x0a) {
+          streamBuf = streamBuf.subarray(0, streamBuf.length - 1);
+          if (streamBuf.length > 0 && streamBuf[streamBuf.length - 1] === 0x0d) {
+            streamBuf = streamBuf.subarray(0, streamBuf.length - 1);
+          }
+        }
+        try {
+          const inflated = zlib.inflateSync(streamBuf);
+          objects.set(objId, { dict, stream: inflated });
+        } catch {
+          objects.set(objId, { dict, stream: null });
+        }
+      } else {
+        objects.set(objId, { dict: body, stream: null });
+      }
+    }
+
+    const cmaps = new Map<number, Map<number, string>>();
+    for (const [id, obj] of objects.entries()) {
+      if (!obj.stream) continue;
+      const text = obj.stream.toString('latin1');
+      if (text.includes('beginbfchar') || text.includes('beginbfrange')) {
+        const map = new Map<number, string>();
+        const bfcharBlocks = text.matchAll(/beginbfchar([\s\S]*?)endbfchar/g);
+        for (const block of bfcharBlocks) {
+          const pairs = block[1].matchAll(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g);
+          for (const p of pairs) {
+            const cid = parseInt(p[1], 16);
+            const hex = p[2];
+            let str = '';
+            for (let i = 0; i < hex.length; i += 4) {
+              str += String.fromCharCode(parseInt(hex.slice(i, i + 4), 16));
+            }
+            map.set(cid, str);
+          }
+        }
+        const bfrangeBlocks = text.matchAll(/beginbfrange([\s\S]*?)endbfrange/g);
+        for (const block of bfrangeBlocks) {
+          const ranges = block[1].matchAll(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g);
+          for (const r of ranges) {
+            const start = parseInt(r[1], 16);
+            const end = parseInt(r[2], 16);
+            let target = parseInt(r[3], 16);
+            for (let cid = start; cid <= end; cid++) {
+              map.set(cid, String.fromCharCode(target++));
+            }
+          }
+        }
+        cmaps.set(id, map);
+      }
+    }
+
+    const fontToCmap = new Map<number, Map<number, string>>();
+    for (const [id, obj] of objects.entries()) {
+      const tuMatch = obj.dict.match(/\/ToUnicode\s+(\d+)\s+0\s+R/);
+      if (tuMatch) {
+        const cmapId = parseInt(tuMatch[1], 10);
+        const cmap = cmaps.get(cmapId);
+        if (cmap) fontToCmap.set(id, cmap);
+      }
+    }
+
+    const wb = XLSX.utils.book_new();
+    let pageIdx = 0;
+
+    for (const [, obj] of objects.entries()) {
+      if (!/\/Type\s*\/Page\b/.test(obj.dict)) continue;
+      pageIdx++;
+
+      const pageFonts = new Map<string, Map<number, string>>();
+      for (const [fId, cmap] of fontToCmap.entries()) {
+        pageFonts.set(`F${fId}`, cmap);
+      }
+      const fontRefs = obj.dict.matchAll(/\/(F\d+)\s+(\d+)\s+0\s+R/g);
+      for (const fr of fontRefs) {
+        const fName = fr[1];
+        const fObjId = parseInt(fr[2], 10);
+        const cmap = fontToCmap.get(fObjId);
+        if (cmap) pageFonts.set(fName, cmap);
+      }
+
+      const contentIds: number[] = [];
+      const singleContent = obj.dict.match(/\/Contents\s+(\d+)\s+0\s+R/);
+      const arrayContent = obj.dict.match(/\/Contents\s*\[([\s\S]*?)\]/);
+      if (singleContent) {
+        contentIds.push(parseInt(singleContent[1], 10));
+      } else if (arrayContent) {
+        const refs = arrayContent[1].matchAll(/(\d+)\s+0\s+R/g);
+        for (const r of refs) contentIds.push(parseInt(r[1], 10));
+      }
+
+      let fullContent = '';
+      for (const cid of contentIds) {
+        const cObj = objects.get(cid);
+        if (cObj?.stream) {
+          fullContent += cObj.stream.toString('latin1') + '\n';
+        }
+      }
+      if (!fullContent) continue;
+
+      let currentFont = '';
+      let currentX = 0;
+      let currentY = 0;
+      const items: { x: number; y: number; text: string }[] = [];
+
+      const decodeLiteral = (lit: string, cmap?: Map<number, string>): string => {
+        const clean = lit.replace(/\\([()\\])/g, '$1');
+        if (cmap && cmap.size > 0 && clean.length >= 2 && clean.charCodeAt(0) === 0) {
+          let out = '';
+          for (let i = 0; i < clean.length; i += 2) {
+            const cid = (clean.charCodeAt(i) << 8) | (clean.charCodeAt(i + 1) || 0);
+            out += cmap.get(cid) ?? '';
+          }
+          if (out) return out;
+        }
+        return clean;
+      };
+
+      const decodeHex = (hexStr: string, cmap?: Map<number, string>): string => {
+        if (cmap && cmap.size > 0) {
+          let out = '';
+          for (let i = 0; i < hexStr.length; i += 4) {
+            const cid = parseInt(hexStr.slice(i, i + 4), 16);
+            out += cmap.get(cid) ?? '';
+          }
+          return out;
+        }
+        let out = '';
+        for (let i = 0; i < hexStr.length; i += 2) {
+          out += String.fromCharCode(parseInt(hexStr.slice(i, i + 2), 16));
+        }
+        return out;
+      };
+
+      const tokenRegex =
+        /\/(F\d+)\s+[\d.]+\s+Tf|([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+Tm|<([0-9A-Fa-f]+)>\s*Tj|\(([^()]*)\)\s*Tj|\[([\s\S]*?)\]\s*TJ/g;
+      let tk: RegExpExecArray | null;
+      while ((tk = tokenRegex.exec(fullContent)) !== null) {
+        if (tk[1]) {
+          currentFont = tk[1];
+        } else if (tk[6] !== undefined && tk[7] !== undefined) {
+          currentX = parseFloat(tk[6]);
+          currentY = parseFloat(tk[7]);
+        } else if (tk[8] !== undefined) {
+          const cmap = pageFonts.get(currentFont);
+          const str = decodeHex(tk[8], cmap);
+          if (str.trim()) items.push({ x: currentX, y: currentY, text: str });
+        } else if (tk[9] !== undefined) {
+          const cmap = pageFonts.get(currentFont);
+          const str = decodeLiteral(tk[9], cmap);
+          if (str.trim()) items.push({ x: currentX, y: currentY, text: str });
+        } else if (tk[10] !== undefined) {
+          const cmap = pageFonts.get(currentFont);
+          const arrBody = tk[10];
+          const subRegex = /<([0-9A-Fa-f]+)>|\(([^()]*)\)/g;
+          let sub: RegExpExecArray | null;
+          let combined = '';
+          while ((sub = subRegex.exec(arrBody)) !== null) {
+            if (sub[1] !== undefined) combined += decodeHex(sub[1], cmap);
+            else if (sub[2] !== undefined) combined += decodeLiteral(sub[2], cmap);
+          }
+          if (combined.trim()) items.push({ x: currentX, y: currentY, text: combined });
+        }
+      }
+
+      if (items.length === 0) continue;
+
+      const rowGroups: { y: number; cells: { x: number; text: string }[] }[] = [];
+      for (const it of items) {
+        let group = rowGroups.find((g) => Math.abs(g.y - it.y) <= 4.5);
+        if (!group) {
+          group = { y: it.y, cells: [] };
+          rowGroups.push(group);
+        }
+        group.cells.push({ x: it.x, text: it.text });
+      }
+
+      rowGroups.sort((a, b) => b.y - a.y);
+
+      const rows2D: string[][] = rowGroups.map((g) => {
+        g.cells.sort((a, b) => a.x - b.x);
+        const mergedCells: { x: number; text: string }[] = [];
+        for (const c of g.cells) {
+          const prev = mergedCells[mergedCells.length - 1];
+          if (prev && Math.abs(c.x - prev.x) < 12) {
+            prev.text += ' ' + c.text;
+          } else {
+            mergedCells.push({ ...c });
+          }
+        }
+        return mergedCells.map((c) => c.text.trim());
+      });
+
+      const sheet = XLSX.utils.aoa_to_sheet(rows2D);
+      XLSX.utils.book_append_sheet(wb, sheet, `Page_${pageIdx}`);
+    }
+
+    if (wb.SheetNames.length === 0) return [];
+    return parseExcelWorkbookCommon(wb, defaultYear, defaultMonth, fileName).payslips;
+  } catch (err) {
+    console.error('Error parsing PDF payroll buffer:', err);
+    return [];
+  }
 }
 
 function createSampleCardSvgUrl(fullName: string, nationalCode: string, birthDate: string, fatherName: string): string {
@@ -2697,6 +2935,33 @@ async function startServer() {
     res.json({ ok: true, user, state });
   });
 
+  // API: Parse PDF Payslip (Single-page or Multi-page native PDF) into structured PayslipItem[]
+  app.post('/api/payslips/parse-pdf', (req, res) => {
+    try {
+      const { pdfDataUrl, year, month, fileName } = req.body as {
+        pdfDataUrl: string;
+        year?: number;
+        month?: number;
+        fileName?: string;
+      };
+      if (!pdfDataUrl || typeof pdfDataUrl !== 'string') {
+        res.status(400).json({ ok: false, error: 'فایل PDF ارسال نشده است.' });
+        return;
+      }
+      const base64Part = pdfDataUrl.includes(',') ? pdfDataUrl.split(',')[1] : pdfDataUrl;
+      const nodeBuf = Buffer.from(base64Part, 'base64');
+      const uploadYear = Number(year) || getCurrentSolarYearServer();
+      const uploadMonth = Number(month) || 7;
+      const payslips = parsePdfPayrollBufferServer(nodeBuf, uploadYear, uploadMonth, fileName || '');
+      res.json({ ok: true, payslips });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'خطا در اسکن فایل PDF',
+      });
+    }
+  });
+
   // API: Batch Upload Payslips (Excel rows OR PDF/Image files matched by `personnelCode`)
   app.post('/api/payslips/batch-upload', (req, res) => {
     const { items, notifyUsers } = req.body as {
@@ -3581,164 +3846,53 @@ console.log("🚀 Payroll Bot (with Full In-Bot Admin Panel /admin) Started for:
           }
         }
 
-        // 2.2. Handle Excel Spreadsheet Upload
+        // 2.2. Handle Excel Spreadsheet Upload (Supports 1 to 100+ sheets, both Row/Form layout & Columnar Table layout)
         if (isExcel) {
           const workbook = XLSX.read(nodeBuf, { type: 'buffer' });
-          const firstSheetName = workbook.SheetNames[0];
-          const sheet = workbook.Sheets[firstSheetName];
-          if (!sheet) {
-            throw new Error('شیت اول فایل اکسل خالی یا نامعتبر است.');
-          }
-
-          // Smart Header Detection: Handle title banners and merged headers
-          let rawRows: Record<string, unknown>[] = [];
-          const candidateKeys = ['کد پرسنلی', 'کدپرسنلی', 'شماره پرسنلی', 'personnelcode', 'code', 'کد', 'پرسنلی', 'نام'];
-          const directRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
-          const hasCandidate = directRows.some((r) => {
-            const keys = Object.keys(r).map((k) => k.trim().toLowerCase());
-            return keys.some((k) => candidateKeys.some((c) => k.includes(c)));
-          });
-
-          if (hasCandidate && directRows.length > 0) {
-            rawRows = directRows;
-          } else {
-            const rows2D = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' });
-            let headerRowIdx = -1;
-            for (let i = 0; i < Math.min(rows2D.length, 12); i++) {
-              const row = rows2D[i];
-              if (Array.isArray(row)) {
-                const rowStr = row.map((c) => String(c || '').trim()).join(' ');
-                if (
-                  rowStr.includes('پرسنلی') ||
-                  rowStr.includes('کد') ||
-                  rowStr.includes('حقوق') ||
-                  rowStr.includes('نام') ||
-                  rowStr.includes('personnel')
-                ) {
-                  headerRowIdx = i;
-                  break;
-                }
-              }
-            }
-            if (headerRowIdx >= 0 && headerRowIdx < rows2D.length - 1) {
-              const headerRow = (rows2D[headerRowIdx] as unknown[]).map((c) => String(c || '').trim());
-              for (let r = headerRowIdx + 1; r < rows2D.length; r++) {
-                const dataRow = rows2D[r] as unknown[];
-                if (!Array.isArray(dataRow) || dataRow.length === 0) continue;
-                const rowObj: Record<string, unknown> = {};
-                headerRow.forEach((colName, cIdx) => {
-                  if (colName) rowObj[colName] = dataRow[cIdx] ?? '';
-                });
-                rawRows.push(rowObj);
-              }
-            } else {
-              rawRows = directRows;
-            }
+          const totalSheetsCount = workbook.SheetNames.length;
+          if (totalSheetsCount === 0) {
+            throw new Error('فایل اکسل ارسالی فاقد شیت معتبر است.');
           }
 
           const uploadYear = botUser.adminSession?.uploadYear || getCurrentSolarYearServer();
-          const uploadMonth = botUser.adminSession?.uploadMonth || 9;
-          const monthObj = PERSIAN_MONTHS.find((m) => m.number === uploadMonth) || PERSIAN_MONTHS[8];
+          const uploadMonth = botUser.adminSession?.uploadMonth || 7;
+          const defaultMonthObj = PERSIAN_MONTHS.find((m) => m.number === uploadMonth) || PERSIAN_MONTHS[6];
 
-          const parseNum = (v: unknown, fallback = 0): number => {
-            if (typeof v === 'number') return v;
-            if (!v) return fallback;
-            const cleaned = toEnglishDigitsServer(String(v)).replace(/[^0-9.-]/g, '');
-            const n = Number(cleaned);
-            return Number.isFinite(n) ? n : fallback;
-          };
-
-          const getField = (row: Record<string, unknown>, candidates: string[]): unknown => {
-            const keys = Object.keys(row);
-            for (const c of candidates) {
-              const exact = keys.find((k) => k.trim() === c);
-              if (exact !== undefined && row[exact] !== '') return row[exact];
-              const partial = keys.find((k) => k.trim().includes(c));
-              if (partial !== undefined && row[partial] !== '') return row[partial];
-            }
-            return '';
-          };
+          const extractedResult = parseExcelWorkbookCommon(
+            workbook,
+            uploadYear,
+            uploadMonth,
+            doc.file_name || ''
+          );
 
           let parsedCount = 0;
-          for (const row of rawRows) {
-            const rawCode = getField(row, ['کد پرسنلی', 'کدپرسنلی', 'شماره پرسنلی', 'personnelCode', 'code', 'کد', 'کد کارمند', 'ردیف']);
-            const personnelCode = toEnglishDigitsServer(String(rawCode || '').trim());
+          const registeredSummaries: string[] = [];
+
+          for (const item of extractedResult.payslips) {
+            const personnelCode = toEnglishDigitsServer(String(item.personnelCode || '').trim());
             if (!personnelCode) continue;
 
-            const employeeName = String(
-              getField(row, ['نام و نام خانوادگی', 'نام کارمند', 'نام پرسنل', 'نام', 'employeeName']) || `پرسنل ${personnelCode}`
-            ).trim();
-            const nationalCode = toEnglishDigitsServer(
-              String(getField(row, ['کد ملی', 'شماره ملی', 'nationalCode']) || '0010000000').trim()
-            );
-            const department = String(
-              getField(row, ['واحد سازمانی', 'واحد', 'بخش', 'department']) || 'ستاد مرکزی'
-            ).trim();
-            const jobTitle = String(
-              getField(row, ['سمت شغلی', 'سمت', 'عنوان شغلی', 'jobTitle']) || 'کارشناس'
-            ).trim();
-            const bankAccount = String(
-              getField(row, ['شماره حساب', 'شماره شبا', 'حساب', 'bankAccount']) || 'IR420170000000109283746501'
-            ).trim();
-
-            const year = parseNum(getField(row, ['سال', 'year']), uploadYear) || uploadYear;
-            const month = parseNum(getField(row, ['ماه', 'month']), uploadMonth) || uploadMonth;
-            const rMonthObj = PERSIAN_MONTHS.find((m) => m.number === month) || monthObj;
-
-            const baseSalary = parseNum(getField(row, ['حقوق پایه', 'پایه حقوق', 'baseSalary']), 150000000);
-            const housingAllowance = parseNum(getField(row, ['حق مسکن', 'housingAllowance']), 18000000);
-            const groceryAllowance = parseNum(getField(row, ['بن کارگری', 'بن', 'groceryAllowance']), 22000000);
-            const childAllowance = parseNum(getField(row, ['حق اولاد', 'childAllowance']), 0);
-            const overtimePay = parseNum(getField(row, ['مبلغ اضافه‌کار', 'overtimePay']), 0);
-            const bonusPay = parseNum(getField(row, ['پاداش', 'bonusPay']), 0);
-            const totalEarnings =
-              parseNum(getField(row, ['جمع کل مزایا', 'جمع مزایا', 'totalEarnings']), 0) ||
-              baseSalary + housingAllowance + groceryAllowance + childAllowance + overtimePay + bonusPay;
-
-            const insuranceDeduction = parseNum(getField(row, ['حق بیمه', 'insuranceDeduction']), Math.round(baseSalary * 0.07));
-            const taxDeduction = parseNum(getField(row, ['مالیات', 'taxDeduction']), Math.round(baseSalary * 0.05));
-            const loanDeduction = parseNum(getField(row, ['وام', 'loanDeduction']), 0);
-            const otherDeduction = parseNum(getField(row, ['سایر کسورات', 'otherDeduction']), 0);
-            const totalDeductions =
-              parseNum(getField(row, ['جمع کل کسورات', 'جمع کسورات', 'totalDeductions']), 0) ||
-              insuranceDeduction + taxDeduction + loanDeduction + otherDeduction;
-
-            const netPay =
-              parseNum(getField(row, ['خالص پرداختی', 'مبلغ پرداختی', 'netPay']), 0) ||
-              totalEarnings - totalDeductions;
+            const year = Number(item.year) || uploadYear;
+            const month = Number(item.month) || uploadMonth;
+            const rMonthObj = PERSIAN_MONTHS.find((m) => m.number === month) || defaultMonthObj;
+            const employeeName = String(item.employeeName || `پرسنل ${personnelCode}`).trim();
 
             const existingIdx = state.payslips.findIndex(
               (p) => p.personnelCode === personnelCode && p.year === year && p.month === month
             );
 
             const newPs: PayslipItem = {
-              id: `ps-${personnelCode}-${year}-${String(month).padStart(2, '0')}-${Date.now().toString(36).slice(-3)}`,
+              ...item,
+              id: `ps-${personnelCode}-${year}-${String(month).padStart(2, '0')}-${Date.now()
+                .toString(36)
+                .slice(-3)}-${parsedCount}`,
               personnelCode,
               employeeName,
-              nationalCode,
-              department,
-              jobTitle,
-              bankAccount,
               year,
               month,
               monthName: rMonthObj.name,
-              workingDays: 30,
-              overtimeHours: 20,
-              baseSalary,
-              housingAllowance,
-              groceryAllowance,
-              childAllowance,
-              overtimePay,
-              bonusPay,
-              totalEarnings,
-              insuranceDeduction,
-              taxDeduction,
-              loanDeduction,
-              otherDeduction,
-              totalDeductions,
-              netPay,
               sourceType: 'excel',
-              createdAt: `۱۴۰۴/۰۸/۱۵ - ${timestamp}`,
+              createdAt: `${toPersianDigitsServer(getCurrentSolarYearServer())}/۰۸/۱۵ - ${timestamp}`,
             };
 
             if (existingIdx >= 0) {
@@ -3752,35 +3906,34 @@ console.log("🚀 Payroll Bot (with Full In-Bot Admin Panel /admin) Started for:
               state.personnelDirectory.push({
                 personnelCode,
                 fullName: employeeName,
-                nationalCode,
-                department,
-                jobTitle,
-                bankAccount,
+                nationalCode: item.nationalCode || '0010000000',
+                department: item.department || 'شرکت رویال صنعت سامانه',
+                jobTitle: item.jobTitle || 'کارشناس',
+                bankAccount: item.bankAccount || 'IR420170000000109283746501',
                 phoneNumber: '09120000000',
                 isActive: true,
               });
+            } else if (employeeName && !employeeName.startsWith('پرسنل ')) {
+              exDir.fullName = employeeName;
             }
+
+            registeredSummaries.push(
+              `• کد پرسنلی \`${personnelCode}\` (${employeeName}) — خالص: **${formatRialServer(newPs.netPay)}** (${rMonthObj.name} ${toPersianDigitsServer(year)})`
+            );
             parsedCount++;
           }
 
           saveState(state);
 
           if (parsedCount === 0) {
-            const detectedKeys = rawRows.length > 0 ? Object.keys(rawRows[0]).slice(0, 8).join(', ') : 'هیچ ستونی یافت نشد';
             await fetch(`${apiBase}/bot${token}/sendMessage`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 chat_id: msg.chat.id,
-                text: `⚠️ **توجه: هیچ فیش حقوقی در این فایل اکسل ثبت نشد!**\n────────────────────\n• فایل دریافت شده: \`${doc.file_name}\`\n• عناوین ستون‌های شناسایی شده: \`${detectedKeys}\`\n\n📌 **راهنما:** فایل اکسل باید حاوی ستونی با نام **«کد پرسنلی»** یا **«شماره پرسنلی»** و **«نام و نام خانوادگی»** باشد تا ربات بتواند فیش‌ها را تفکیک کند.\n\n⚡ همچنین می‌توانید با زدن دکمه زیر، فایل نمونه استاندارد را بارگذاری فرمایید:`,
+                text: `⚠️ **توجه: هیچ فیش حقوقی در این فایل اکسل شناسایی نشد!**\n────────────────────\n• فایل دریافت شده: \`${doc.file_name}\`\n• تعداد شیت‌های بررسی شده: \`${toPersianDigitsServer(totalSheetsCount)} شیت\`\n\n📌 **راهنما:** ربات تمام شیت‌های فایل اکسل را هم به صورت **فرم ردیفی (تک‌برگی در هر شیت)** و هم به صورت **جدول ستونی** اسکن کرد اما عبارت **«شماره پرسنلی»** یا **«کد پرسنلی»** یا **«خالص پرداختی»** در شیت‌ها یافت نشد.`,
                 reply_markup: {
                   inline_keyboard: [
-                    [
-                      {
-                        text: `⚡ بارگذاری خودکار اکسل نمونه ${monthObj.name} ${toPersianDigitsServer(uploadYear)}`,
-                        callback_data: `adm_quick_seed_month:${uploadYear}:${uploadMonth}`,
-                      },
-                    ],
                     [
                       { text: '👑 بازگشت به پنل مدیریت', callback_data: 'adm_panel' },
                     ],
@@ -3791,14 +3944,22 @@ console.log("🚀 Payroll Bot (with Full In-Bot Admin Panel /admin) Started for:
             return true;
           }
 
+          const previewList = registeredSummaries.slice(0, 12).join('\n');
+          const moreText =
+            registeredSummaries.length > 12
+              ? `\n... و **${toPersianDigitsServer(registeredSummaries.length - 12)} فیش دیگر** با موفقیت ثبت شدند.`
+              : '';
+
           await fetch(`${apiBase}/bot${token}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               chat_id: msg.chat.id,
-              text: `✅ **فایل اکسل حقوقی با موفقیت در ربات دریافت و ثبت شد!**\n────────────────────\n• نام فایل: \`${doc.file_name}\`\n• دوره مالی: **${monthObj.name} ماه سال ${toPersianDigitsServer(uploadYear)}**\n• تعداد فیش‌های ثبت‌شده بر اساس کد پرسنلی: **${toPersianDigitsServer(
+              text: `✅ **فایل اکسل حقوقی با موفقیت اسکن و تفکیک شد!**\n────────────────────\n• نام فایل: \`${doc.file_name}\`\n• تعداد کل شیت‌های اسکن‌شده: **${toPersianDigitsServer(
+                totalSheetsCount
+              )} شیت**\n• تعداد فیش‌های استخراج و ثبت‌شده: **${toPersianDigitsServer(
                 parsedCount
-              )} فیش**\n• تمام اطلاعات در دیتابیس ثبت و با کد پرسنلی هر کاربر تطبیق داده شد.`,
+              )} فیش مجزا**\n────────────────────\n📋 **لیست فیش‌های تفکیک‌شده بر اساس کد پرسنلی:**\n${previewList}${moreText}\n────────────────────\n• هر فیش دقیقاً در پرونده اختصاصی کد پرسنلی مربوط به خودش قرار گرفت.`,
               reply_markup: {
                 inline_keyboard: buildAdminInBotKeyboard(state).map((row) =>
                   row.map((b) => ({ text: b.text, callback_data: b.callbackData || 'main_menu' }))
@@ -3809,20 +3970,120 @@ console.log("🚀 Payroll Bot (with Full In-Bot Admin Panel /admin) Started for:
           return true;
         }
 
-        // 2.3. Handle PDF Payslip or Image Upload
+        // 2.3. Handle PDF Payslip (Single-page or Multi-page) or Image Upload
         if (isPdf || isImage) {
           const b64 = nodeBuf.toString('base64');
           const dataUrl = isPdf ? `data:application/pdf;base64,${b64}` : `data:image/jpeg;base64,${b64}`;
-          const codeMatch = toEnglishDigitsServer(fileName + ' ' + (msg.caption || '')).match(/\b(10\d{2}|\d{3,6})\b/);
-          let pCode = codeMatch ? codeMatch[1] : (botUser.adminSession?.targetPersonnelCode || '');
+          const uploadYear = botUser.adminSession?.uploadYear || getCurrentSolarYearServer();
+          const uploadMonth = botUser.adminSession?.uploadMonth || 7;
+          const defaultMonthObj = PERSIAN_MONTHS.find((m) => m.number === uploadMonth) || PERSIAN_MONTHS[6];
+
+          // First: If it's a PDF, deeply scan all pages for structured payslips (e.g. "حقوق رویال 405.pdf" or "فش.pdf")
+          if (isPdf) {
+            const pdfPayslips = parsePdfPayrollBufferServer(
+              nodeBuf,
+              uploadYear,
+              uploadMonth,
+              doc.file_name || ''
+            );
+
+            if (pdfPayslips.length > 0) {
+              let parsedCount = 0;
+              const registeredSummaries: string[] = [];
+
+              for (const item of pdfPayslips) {
+                const pCode = toEnglishDigitsServer(String(item.personnelCode || '').trim());
+                if (!pCode) continue;
+
+                const year = Number(item.year) || uploadYear;
+                const month = Number(item.month) || uploadMonth;
+                const rMonthObj = PERSIAN_MONTHS.find((m) => m.number === month) || defaultMonthObj;
+                const empName = String(item.employeeName || `پرسنل ${pCode}`).trim();
+
+                const newPs: PayslipItem = {
+                  ...item,
+                  id: `ps-${pCode}-${year}-${String(month).padStart(2, '0')}-${Date.now()
+                    .toString(36)
+                    .slice(-3)}-${parsedCount}`,
+                  personnelCode: pCode,
+                  employeeName: empName,
+                  year,
+                  month,
+                  monthName: rMonthObj.name,
+                  sourceType: 'pdf_image',
+                  customPdfUrl: pdfPayslips.length === 1 ? dataUrl : undefined,
+                  customPdfFileName: doc.file_name,
+                  createdAt: `${toPersianDigitsServer(getCurrentSolarYearServer())}/۰۸/۱۵ - ${timestamp}`,
+                };
+
+                const existingIdx = state.payslips.findIndex(
+                  (p) => p.personnelCode === pCode && p.year === year && p.month === month
+                );
+                if (existingIdx >= 0) {
+                  state.payslips[existingIdx] = newPs;
+                } else {
+                  state.payslips.unshift(newPs);
+                }
+
+                const exDir = state.personnelDirectory.find((p) => p.personnelCode === pCode);
+                if (!exDir) {
+                  state.personnelDirectory.push({
+                    personnelCode: pCode,
+                    fullName: empName,
+                    nationalCode: item.nationalCode || '0010000000',
+                    department: item.department || 'شرکت رویال صنعت سامانه',
+                    jobTitle: item.jobTitle || 'کارشناس',
+                    bankAccount: item.bankAccount || 'IR420170000000109283746501',
+                    phoneNumber: '09120000000',
+                    isActive: true,
+                  });
+                } else if (empName && !empName.startsWith('پرسنل ')) {
+                  exDir.fullName = empName;
+                }
+
+                registeredSummaries.push(
+                  `• کد پرسنلی \`${pCode}\` (${empName}) — خالص: **${formatRialServer(newPs.netPay)}** (${rMonthObj.name} ${toPersianDigitsServer(year)})`
+                );
+                parsedCount++;
+              }
+
+              saveState(state);
+
+              const previewList = registeredSummaries.slice(0, 12).join('\n');
+              const moreText =
+                registeredSummaries.length > 12
+                  ? `\n... و **${toPersianDigitsServer(registeredSummaries.length - 12)} فیش دیگر** ثبت شدند.`
+                  : '';
+
+              await fetch(`${apiBase}/bot${token}/sendMessage`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  chat_id: msg.chat.id,
+                  text: `✅ **فایل PDF فیش حقوقی با موفقیت اسکن و تفکیک شد!**\n────────────────────\n• نام فایل: \`${doc.file_name}\`\n• تعداد فیش‌های استخراج‌شده از صفحات PDF: **${toPersianDigitsServer(
+                    parsedCount
+                  )} فیش**\n────────────────────\n📋 **مشخصات فیش‌های ثبت‌شده:**\n${previewList}${moreText}\n────────────────────\n• هر فیش در پرونده اختصاصی کد پرسنلی مربوطه قرار گرفت.`,
+                  reply_markup: {
+                    inline_keyboard: buildAdminInBotKeyboard(state).map((row) =>
+                      row.map((b) => ({ text: b.text, callback_data: b.callbackData || 'main_menu' }))
+                    ),
+                  },
+                }),
+              });
+              return true;
+            }
+          }
+
+          // Fallback for scanned image / non-text PDF: extract full personnel code from caption or filename
+          let pCode = extractCleanPersonnelCode((msg.caption || '') + ' ' + fileName);
+          if (!pCode) {
+            pCode = botUser.adminSession?.targetPersonnelCode || '';
+          }
           if (!pCode && state.personnelDirectory.length > 0) {
             pCode = state.personnelDirectory[0].personnelCode;
           }
           if (!pCode) pCode = '1001';
 
-          const uploadYear = botUser.adminSession?.uploadYear || getCurrentSolarYearServer();
-          const uploadMonth = botUser.adminSession?.uploadMonth || 9;
-          const monthObj = PERSIAN_MONTHS.find((m) => m.number === uploadMonth) || PERSIAN_MONTHS[8];
           const person = state.personnelDirectory.find((p) => p.personnelCode === pCode);
           const empName = person?.fullName || `پرسنل کد ${pCode}`;
 
@@ -3836,7 +4097,7 @@ console.log("🚀 Payroll Bot (with Full In-Bot Admin Panel /admin) Started for:
             bankAccount: person?.bankAccount || 'IR420170000000109283746501',
             year: uploadYear,
             month: uploadMonth,
-            monthName: monthObj.name,
+            monthName: defaultMonthObj.name,
             workingDays: 30,
             overtimeHours: 20,
             baseSalary: 175000000,
@@ -3856,7 +4117,7 @@ console.log("🚀 Payroll Bot (with Full In-Bot Admin Panel /admin) Started for:
             customPdfUrl: isPdf ? dataUrl : undefined,
             customPdfFileName: isPdf ? doc.file_name : undefined,
             customImageUrl: !isPdf ? dataUrl : undefined,
-            createdAt: `۱۴۰۴/۰۸/۱۵ - ${timestamp}`,
+            createdAt: `${toPersianDigitsServer(getCurrentSolarYearServer())}/۰۸/۱۵ - ${timestamp}`,
           };
 
           const existingIdx = state.payslips.findIndex(
@@ -3874,9 +4135,7 @@ console.log("🚀 Payroll Bot (with Full In-Bot Admin Panel /admin) Started for:
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               chat_id: msg.chat.id,
-              text: `✅ **فایل فیش حقوقی (${isPdf ? 'PDF' : 'تصویر'}) در ربات ثبت شد!**\n────────────────────\n• متصل به کد پرسنلی: **${toPersianDigitsServer(
-                pCode
-              )}** (${empName})\n• ماه و سال: **${monthObj.name} ${toPersianDigitsServer(uploadYear)}**\n• فیش حقوقی در پرونده کارمند قرار گرفت.`,
+              text: `✅ **فایل فیش حقوقی (${isPdf ? 'PDF' : 'تصویر'}) در ربات ثبت شد!**\n────────────────────\n• متصل به کد پرسنلی: \`${pCode}\` (${empName})\n• ماه و سال: **${defaultMonthObj.name} ${toPersianDigitsServer(uploadYear)}**\n• فیش حقوقی در پرونده کارمند قرار گرفت.`,
               reply_markup: {
                 inline_keyboard: buildAdminInBotKeyboard(state).map((row) =>
                   row.map((b) => ({ text: b.text, callback_data: b.callbackData || 'main_menu' }))

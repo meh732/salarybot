@@ -29,11 +29,13 @@ import {
 import {
   downloadPayslipImage,
   downloadPayslipPdf,
+  extractCleanPersonnelCode,
   formatRial,
   generateNationalCardSvgDataUrl,
   generatePayslipSvgDataUrl,
   getCurrentSolarYear,
   parseExcelPayrollFile,
+  parsePdfPayrollFile,
   toEnglishDigits,
   toPersianDigits,
 } from '../utils/payslipGenerator';
@@ -194,8 +196,23 @@ export const BotSimulator: React.FC<BotSimulatorProps> = ({
         });
       } else {
         // PDF or Image payslip uploaded directly inside bot chat
-        const codeMatch = toEnglishDigits(file.name).match(/\b(10\d{2}|\d{3,6})\b/);
-        const detectedCode = codeMatch ? codeMatch[1] : (activeUser.adminSession?.targetPersonnelCode || '1001');
+        const isPdf = file.name.toLowerCase().endsWith('.pdf');
+        if (isPdf) {
+          const parsedPdfItems = await parsePdfPayrollFile(file, uploadYear, uploadMonth);
+          if (parsedPdfItems.length > 0) {
+            await onAdminUploadInChat({
+              adminUserId: activeUser.id,
+              items: parsedPdfItems,
+              fileName: file.name,
+            });
+            return;
+          }
+        }
+
+        const detectedCode =
+          extractCleanPersonnelCode(file.name) ||
+          activeUser.adminSession?.targetPersonnelCode ||
+          '1001';
         const person = state.personnelDirectory.find((p) => p.personnelCode === detectedCode);
         const personCode = person?.personnelCode || detectedCode;
         const employeeName = person?.fullName || `پرسنل کد ${detectedCode}`;
@@ -207,7 +224,6 @@ export const BotSimulator: React.FC<BotSimulatorProps> = ({
         const reader = new FileReader();
         reader.onload = async () => {
           const dataUrl = typeof reader.result === 'string' ? reader.result : '';
-          const isPdf = file.name.toLowerCase().endsWith('.pdf');
           const singleItem: Omit<PayslipItem, 'id' | 'createdAt'> = {
             personnelCode: personCode,
             employeeName,
