@@ -2,10 +2,15 @@ import * as XLSX from 'xlsx';
 import { PayslipItem, PERSIAN_MONTHS } from '../types/payroll';
 import {
   extractCleanPersonnelCode,
+  formatExcelDurationCommon,
   parseExcelWorkbookCommon,
 } from './excelPayrollScanner';
+import {
+  RSS_LOGO_BOTTOM_DATA_URL,
+  RSS_LOGO_TOP_DATA_URL,
+} from './rssLogos';
 
-export { extractCleanPersonnelCode };
+export { extractCleanPersonnelCode, formatExcelDurationCommon };
 
 export function toPersianDigits(val: string | number | undefined | null): string {
   if (val === undefined || val === null) return '';
@@ -119,275 +124,427 @@ export function generateNationalCardSvgDataUrl(
 }
 
 /**
+ * Formats a Rial number with Persian digits and standard comma separators, or '-' if 0.
+ */
+function formatCellMoneyOrDash(amount: number | undefined | null): string {
+  const n = Math.round(Number(amount) || 0);
+  if (n <= 0) return '-';
+  const withCommas = n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return toPersianDigits(withCommas);
+}
+
+/**
  * Generates an official, high-resolution SVG DataURL of a Payslip (`تصویر فیش حقوقی`)
- * styled after the official RSS Royal Sanat Samaneh (رویال صنعت سامانه) corporate format.
+ * using the exact geometric coordinates, table grid, and embedded RSS logos of the
+ * official Royal Sanat Samaneh (`شرکت رویال صنعت سامانه`) PDF template (`595.2 x 420.72`).
  */
 export function generatePayslipSvgDataUrl(payslip: PayslipItem, orgName = 'رویال صنعت سامانه'): string {
   if (payslip.customImageUrl && payslip.customImageUrl.startsWith('data:image/')) {
     return payslip.customImageUrl;
   }
 
-  const cleanOrg = orgName.includes('رویال') ? orgName : `شرکت ${orgName}`;
+  const isDefaultAppTitle =
+    !orgName ||
+    orgName.includes('سامانه جامع') ||
+    orgName.includes('فیش حقوقی') ||
+    orgName.includes('رویال');
+  const cleanOrg = isDefaultAppTitle
+    ? 'شرکت رویال صنعت سامانه'
+    : orgName.startsWith('شرکت')
+    ? orgName
+    : `شرکت ${orgName}`;
 
-  // Calculated / Fallback values matching RSS template format
-  const specPay = payslip.specializationPay ?? Math.round(payslip.baseSalary * 0.56);
-  const marAllowance = payslip.maritalAllowance ?? 5000000;
-  const senPay = payslip.seniorityPay ?? 34317060;
-  const holPay = payslip.holidayPay ?? Math.round(payslip.overtimePay * 0.5);
-  const extDayPay = payslip.extraDayPay ?? Math.round(payslip.baseSalary / 30);
+  const baseSalary = Number(payslip.baseSalary) || 0;
+  const specPay = Number(payslip.specializationPay) || 0;
+  const groceryPay = Number(payslip.groceryAllowance) || 0;
+  const housingPay = Number(payslip.housingAllowance) || 0;
+  const marAllowance = Number(payslip.maritalAllowance) || 0;
+  const childPay = Number(payslip.childAllowance) || 0;
+  const senPay = Number(payslip.seniorityPay) || 0;
+  const missionPay = Number(payslip.missionPay) || 0;
+  const overtimePay = Number(payslip.overtimePay) || 0;
+  const holPay = Number(payslip.holidayPay) || 0;
+  const bonusOrService = Number(payslip.bonusPay) || 0;
+  const extDayPay = Number(payslip.extraDayPay) || 0;
 
-  const totalEarn =
-    payslip.totalEarnings ||
-    payslip.baseSalary +
-      specPay +
-      payslip.groceryAllowance +
-      payslip.housingAllowance +
-      marAllowance +
-      payslip.childAllowance +
-      senPay +
-      (payslip.missionPay || 0) +
-      payslip.overtimePay +
-      holPay +
-      (payslip.bonusPay || 0) +
-      extDayPay;
+  const computedEarn =
+    baseSalary +
+    specPay +
+    groceryPay +
+    housingPay +
+    marAllowance +
+    childPay +
+    senPay +
+    missionPay +
+    overtimePay +
+    holPay +
+    bonusOrService +
+    extDayPay;
+  const totalEarn = Number(payslip.totalEarnings) || computedEarn;
 
-  const suppIns = payslip.supplementaryInsurance ?? 6820000;
-  const lunchDed = payslip.lunchDeduction ?? 30000000;
+  const insDed = Number(payslip.insuranceDeduction) || 0;
+  const suppIns = Number(payslip.supplementaryInsurance) || 0;
+  const taxDed = Number(payslip.taxDeduction) || 0;
+  const loanDed = Number(payslip.loanDeduction) || 0;
+  const lunchDed = Number(payslip.lunchDeduction) || 0;
+  const otherDed = Number(payslip.otherDeduction) || 0;
 
-  const totalDed =
-    payslip.totalDeductions ||
-    payslip.insuranceDeduction +
-      suppIns +
-      payslip.taxDeduction +
-      payslip.loanDeduction +
-      lunchDed +
-      payslip.otherDeduction;
+  const computedDed = insDed + suppIns + taxDed + loanDed + lunchDed + otherDed;
+  const totalDed = Number(payslip.totalDeductions) || computedDed;
+  const netPay = Number(payslip.netPay) || Math.max(0, totalEarn - totalDed);
 
-  const netPay = payslip.netPay || Math.max(0, totalEarn - totalDed);
+  // Format Attendance values cleanly (converting Excel time fractions like 0.11180555555555556 -> ۲:۴۱:۰۰)
+  const workingDaysStr = toPersianDigits((Number(payslip.workingDays) || 30).toFixed(1));
+  const rawOt =
+    formatExcelDurationCommon(payslip.overtimeHoursStr) ||
+    (payslip.overtimeHours ? formatExcelDurationCommon(payslip.overtimeHours) : '') ||
+    '0:00:00';
+  const otStr = toPersianDigits(rawOt);
 
-  const otStr = payslip.overtimeHoursStr || (payslip.overtimeHours ? `${toPersianDigits(payslip.overtimeHours)}:33:00` : '-');
-  const holStr = payslip.holidayHoursStr || (holPay ? '44:46:00' : '-');
+  const rawHol =
+    formatExcelDurationCommon(payslip.holidayHoursStr) ||
+    '0:00:00';
+  const holStr = toPersianDigits(rawHol);
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="740" viewBox="0 0 900 740" direction="rtl">
+  const leaveStr =
+    payslip.leaveHoursStr && payslip.leaveHoursStr !== '-'
+      ? toPersianDigits(formatExcelDurationCommon(payslip.leaveHoursStr) || payslip.leaveHoursStr)
+      : '-';
+
+  const empNameClean = (payslip.employeeName || `پرسنل ${payslip.personnelCode}`).trim();
+  const pCodeClean = toEnglishDigits(String(payslip.personnelCode || '').trim());
+  const yearClean = toEnglishDigits(String(payslip.year || getCurrentSolarYear()));
+  const monthLabel = `${payslip.monthName} ${yearClean}`;
+
+  // Dynamic center X for "نام و نام خانوادگی : <Name>" so its right edge aligns neatly at x ~ 526
+  const fullNameLine = `نام و نام خانوادگی : ${empNameClean}`;
+  const nameCenterX = Math.max(375, Math.min(462, 528 - fullNameLine.length * 2.35));
+
+  // Notice: Every single <text> uses text-anchor="middle" and the root <svg> does NOT use direction="rtl",
+  // eliminating browser RTL text-anchor inversion bugs and preventing any clipping or border overlap.
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1190" height="841" viewBox="0 0 595.2 420.72">
     <style>
-      .t-main { font-family: Vazirmatn, Tahoma, sans-serif; }
-      .t-bold { font-weight: bold; }
-      .bg-head { fill: #f8fafc; }
-      .border-line { stroke: #000000; stroke-width: 1.5; }
-      .border-thin { stroke: #475569; stroke-width: 1; }
+      .f-fa { font-family: Tahoma, Vazirmatn, Arial, sans-serif; fill: #000000; direction: rtl; unicode-bidi: embed; }
+      .f-num { font-family: Tahoma, Vazirmatn, Arial, sans-serif; fill: #000000; }
+      .bold { font-weight: bold; }
+      .grid-line { stroke: #000000; stroke-width: 0.96; stroke-linecap: square; }
     </style>
 
-    <!-- Background Outer -->
-    <rect width="900" height="740" fill="#ffffff"/>
-    <rect x="20" y="20" width="860" height="700" fill="#ffffff" class="border-line"/>
+    <!-- Pure White Page Background -->
+    <rect width="595.2" height="420.72" fill="#ffffff"/>
 
-    <!-- Top Company Header -->
-    <g class="t-main" fill="#000000">
-      <!-- Logo RSS on Right -->
-      <g transform="translate(40, 35)">
-        <text x="0" y="20" font-size="22" font-weight="900" fill="#1e3a8a">RSS</text>
-        <text x="0" y="32" font-size="9" font-weight="bold" fill="#3b82f6">Royal Sanat Samaneh</text>
-      </g>
+    <!-- Top-Left Official RSS Logo -->
+    <image x="70.47" y="30.24" width="74.01" height="39.69" href="${RSS_LOGO_TOP_DATA_URL}" xlink:href="${RSS_LOGO_TOP_DATA_URL}" preserveAspectRatio="xMidYMid meet"/>
 
-      <!-- Center Title -->
-      <text x="450" y="55" font-size="20" font-weight="bold" text-anchor="middle">فیش حقوقی پرسنل ${cleanOrg}</text>
-      
-      <!-- Subheaders -->
-      <text x="40" y="92" font-size="14" font-weight="bold">${payslip.monthName} ${toPersianDigits(payslip.year)}</text>
-      <text x="840" y="70" font-size="14" text-anchor="end">نام و نام خانوادگی : <tspan font-weight="bold">${payslip.employeeName}</tspan></text>
-      <text x="840" y="92" font-size="14" text-anchor="end">شماره پرسنلی <tspan font-weight="bold">${toPersianDigits(payslip.personnelCode)}</tspan></text>
+    <!-- Header Text Above Table -->
+    <text x="380" y="48.8" font-size="16.5" class="f-fa bold" text-anchor="middle">فیش حقوقی پرسنل ${cleanOrg}</text>
+    <text x="${nameCenterX.toFixed(1)}" y="69.2" font-size="11.04" class="f-fa bold" text-anchor="middle">${fullNameLine}</text>
+
+    <text x="496.5" y="85.2" font-size="11.04" class="f-fa bold" text-anchor="middle">شماره پرسنلی</text>
+    <text x="430.5" y="85.2" font-size="11.04" class="f-num bold" text-anchor="middle">${pCodeClean}</text>
+
+    <text x="106.0" y="85.2" font-size="11.04" class="f-fa bold" text-anchor="middle">${monthLabel}</text>
+
+    <!-- Shaded Gray Fills (#d9d9d9) -->
+    <!-- 1. Table Header Row -->
+    <rect x="69.36" y="89.42" width="461.82" height="13.8" fill="#d9d9d9"/>
+    <!-- 2. Net Pay Highlight Box -->
+    <rect x="324.85" y="328.6" width="79.8" height="19.1" fill="#d9d9d9"/>
+
+    <!-- Table Horizontal Lines -->
+    <!-- Top Border of Table -->
+    <line x1="69.36" y1="89.42" x2="531.18" y2="89.42" class="grid-line"/>
+    <!-- Bottom of Header Row -->
+    <line x1="69.36" y1="103.22" x2="531.18" y2="103.22" class="grid-line"/>
+    <!-- Top of Totals Row -->
+    <line x1="69.36" y1="310.8" x2="531.18" y2="310.8" class="grid-line"/>
+    <!-- Double Line Separating Totals Row and Net Pay Footer Row -->
+    <line x1="69.36" y1="327.2" x2="531.18" y2="327.2" class="grid-line"/>
+    <line x1="69.36" y1="328.6" x2="531.18" y2="328.6" class="grid-line"/>
+    <!-- Bottom Border of Table -->
+    <line x1="69.36" y1="348.2" x2="531.18" y2="348.2" class="grid-line"/>
+
+    <!-- Table Vertical Lines -->
+    <!-- Far Left Outer Border -->
+    <line x1="69.36" y1="89.42" x2="69.36" y2="348.2" class="grid-line"/>
+    <!-- Col 1 | Col 2 (Deductions Values | Deductions Labels) -->
+    <line x1="142.76" y1="103.22" x2="142.76" y2="310.8" class="grid-line"/>
+    <!-- Col 2 | Col 3 (Deductions | Earnings) -->
+    <line x1="257.99" y1="89.42" x2="257.99" y2="310.8" class="grid-line"/>
+    <!-- Col 3 | Col 4 (Earnings Values | Earnings Labels) -->
+    <line x1="324.85" y1="103.22" x2="324.85" y2="310.8" class="grid-line"/>
+    <!-- Col 4 | Col 5 (Earnings | Attendance) -->
+    <line x1="404.65" y1="89.42" x2="404.65" y2="310.8" class="grid-line"/>
+    <!-- Col 5 | Col 6 (Attendance Values | Attendance Labels - extends to Totals bottom) -->
+    <line x1="456.28" y1="103.22" x2="456.28" y2="327.2" class="grid-line"/>
+    <!-- Far Right Outer Border -->
+    <line x1="531.18" y1="89.42" x2="531.18" y2="348.2" class="grid-line"/>
+
+    <!-- Table Header Titles -->
+    <text x="163.67" y="99.6" font-size="11.04" class="f-fa bold" text-anchor="middle">کسورات</text>
+    <text x="331.32" y="99.6" font-size="11.04" class="f-fa bold" text-anchor="middle">حقوق و دستمزد ( ریال )</text>
+
+    <!-- ================= COL 1 & COL 2: DEDUCTIONS (کسورات) ================= -->
+    <g font-size="9.96" text-anchor="middle">
+      <!-- Row 1: بیمه تامین اجتماعی -->
+      <text x="200.37" y="114.2" class="f-fa bold">بیمه تامین اجتماعی</text>
+      <text x="106.06" y="114.2" class="f-num bold">${formatCellMoneyOrDash(insDed)}</text>
+
+      <!-- Row 2: بیمه تکمیلی -->
+      <text x="200.37" y="130.16" class="f-fa bold">بیمه تکمیلی</text>
+      <text x="106.06" y="130.16" class="f-num bold">${formatCellMoneyOrDash(suppIns)}</text>
+
+      <!-- Row 3: مالیات حقوق -->
+      <text x="200.37" y="146.12" class="f-fa bold">مالیات حقوق</text>
+      <text x="106.06" y="146.12" class="f-num bold">${formatCellMoneyOrDash(taxDed)}</text>
+
+      <!-- Row 4: قسط وام -->
+      <text x="200.37" y="162.08" class="f-fa bold">قسط وام</text>
+      <text x="106.06" y="162.08" class="f-num bold">${formatCellMoneyOrDash(loanDed)}</text>
+
+      <!-- Row 5: کسر کار -->
+      <text x="200.37" y="178.04" class="f-fa bold">کسر کار</text>
+      <text x="106.06" y="178.04" class="f-num bold">-</text>
+
+      <!-- Row 6: مساعده -->
+      <text x="200.37" y="194.0" class="f-fa bold">مساعده</text>
+      <text x="106.06" y="194.0" class="f-num bold">${formatCellMoneyOrDash(otherDed)}</text>
+
+      <!-- Row 7: ناهار یا نقطه -->
+      <text x="200.37" y="209.96" class="f-fa bold">${lunchDed > 0 ? 'ناهار' : '.'}</text>
+      <text x="106.06" y="209.96" class="f-num bold">${lunchDed > 0 ? formatCellMoneyOrDash(lunchDed) : '.'}</text>
     </g>
 
-    <!-- Main Table Container -->
-    <rect x="35" y="108" width="830" height="540" fill="none" class="border-line"/>
-
-    <!-- Header Row (Deductions | Earnings | Work Metrics) -->
-    <rect x="35" y="108" width="830" height="35" fill="#f1f5f9" class="border-line"/>
-
-    <!-- Vertical Dividers for Header -->
-    <line x1="280" y1="108" x2="280" y2="648" class="border-line"/>
-    <line x1="660" y1="108" x2="660" y2="648" class="border-line"/>
-
-    <g class="t-main" font-size="14" font-weight="bold" fill="#000000" text-anchor="middle">
-      <text x="157" y="131">کسورات</text>
-      <text x="470" y="131">حقوق و دستمزد ( ریال )</text>
-    </g>
-
-    <!-- Table Rows Structure -->
-    <!-- Column 1: Deductions (Left 35..280) -->
-    <g class="t-main" font-size="12" fill="#000000">
-      <!-- Item 1: بیمه تامین اجتماعی -->
-      <text x="270" y="170" text-anchor="end">بیمه تامین اجتماعی</text>
-      <text x="150" y="170" text-anchor="end" class="t-bold">${toPersianDigits(formatRial(payslip.insuranceDeduction).replace(' ریال',''))}</text>
-
-      <!-- Item 2: بیمه تکمیلی -->
-      <text x="270" y="200" text-anchor="end">بیمه تکمیلی</text>
-      <text x="150" y="200" text-anchor="end" class="t-bold">${toPersianDigits(formatRial(suppIns).replace(' ریال',''))}</text>
-
-      <!-- Item 3: مالیات حقوق -->
-      <text x="270" y="230" text-anchor="end">مالیات حقوق</text>
-      <text x="150" y="230" text-anchor="end">${payslip.taxDeduction > 0 ? toPersianDigits(formatRial(payslip.taxDeduction).replace(' ریال','')) : '-'}</text>
-
-      <!-- Item 4: قسط وام -->
-      <text x="270" y="260" text-anchor="end">قسط وام</text>
-      <text x="150" y="260" text-anchor="end">${payslip.loanDeduction > 0 ? toPersianDigits(formatRial(payslip.loanDeduction).replace(' ریال','')) : '-'}</text>
-
-      <!-- Item 5: کسر کار -->
-      <text x="270" y="290" text-anchor="end">کسر کار</text>
-      <text x="150" y="290" text-anchor="end">-</text>
-
-      <!-- Item 6: مساعده -->
-      <text x="270" y="320" text-anchor="end">مساعده</text>
-      <text x="150" y="320" text-anchor="end">-</text>
-
-      <!-- Item 7: ناهار -->
-      <text x="270" y="350" text-anchor="end">ناهار</text>
-      <text x="150" y="350" text-anchor="end" class="t-bold">${toPersianDigits(formatRial(lunchDed).replace(' ریال',''))}</text>
-    </g>
-
-    <!-- Subtotal Deductions Row (Bottom Left) -->
-    <line x1="35" y1="612" x2="280" y2="612" class="border-line"/>
-    <g class="t-main" font-size="14" font-weight="bold" fill="#000000">
-      <text x="160" y="635" text-anchor="end">${toPersianDigits(formatRial(totalDed).replace(' ریال',''))}</text>
-    </g>
-
-    <!-- Column 2: Earnings & Allowances (Middle 280..660) -->
-    <g class="t-main" font-size="12" fill="#000000">
+    <!-- ================= COL 3 & COL 4: EARNINGS (حقوق و دستمزد) ================= -->
+    <g font-size="9.96" text-anchor="middle">
       <!-- Row 1: پایه -->
-      <text x="645" y="170" text-anchor="end">پایه</text>
-      <text x="450" y="170" text-anchor="end" class="t-bold">${toPersianDigits(formatRial(payslip.baseSalary).replace(' ریال',''))}</text>
+      <text x="364.75" y="114.2" class="f-fa bold">پایه</text>
+      <text x="291.42" y="114.2" class="f-num bold">${formatCellMoneyOrDash(baseSalary)}</text>
 
       <!-- Row 2: حق تخصص -->
-      <text x="645" y="200" text-anchor="end">حق تخصص</text>
-      <text x="450" y="200" text-anchor="end" class="t-bold">${toPersianDigits(formatRial(specPay).replace(' ریال',''))}</text>
+      <text x="364.75" y="130.16" class="f-fa bold">حق تخصص</text>
+      <text x="291.42" y="130.16" class="f-num bold">${formatCellMoneyOrDash(specPay)}</text>
 
       <!-- Row 3: حق بن -->
-      <text x="645" y="230" text-anchor="end">حق بن</text>
-      <text x="450" y="230" text-anchor="end" class="t-bold">${toPersianDigits(formatRial(payslip.groceryAllowance).replace(' ریال',''))}</text>
+      <text x="364.75" y="146.12" class="f-fa bold">حق بن</text>
+      <text x="291.42" y="146.12" class="f-num bold">${formatCellMoneyOrDash(groceryPay)}</text>
 
       <!-- Row 4: حق مسکن -->
-      <text x="645" y="260" text-anchor="end">حق مسکن</text>
-      <text x="450" y="260" text-anchor="end" class="t-bold">${toPersianDigits(formatRial(payslip.housingAllowance).replace(' ریال',''))}</text>
+      <text x="364.75" y="162.08" class="f-fa bold">حق مسکن</text>
+      <text x="291.42" y="162.08" class="f-num bold">${formatCellMoneyOrDash(housingPay)}</text>
 
       <!-- Row 5: حق تاهل -->
-      <text x="645" y="290" text-anchor="end">حق تاهل</text>
-      <text x="450" y="290" text-anchor="end" class="t-bold">${toPersianDigits(formatRial(marAllowance).replace(' ریال',''))}</text>
+      <text x="364.75" y="178.04" class="f-fa bold">حق تاهل</text>
+      <text x="291.42" y="178.04" class="f-num bold">${formatCellMoneyOrDash(marAllowance)}</text>
 
       <!-- Row 6: حق اولاد -->
-      <text x="645" y="320" text-anchor="end">حق اولاد</text>
-      <text x="450" y="320" text-anchor="end" class="t-bold">${toPersianDigits(formatRial(payslip.childAllowance).replace(' ریال',''))}</text>
+      <text x="364.75" y="194.0" class="f-fa bold">حق اولاد</text>
+      <text x="291.42" y="194.0" class="f-num bold">${formatCellMoneyOrDash(childPay)}</text>
 
       <!-- Row 7: پایه سنوات -->
-      <text x="645" y="350" text-anchor="end">پایه سنوات</text>
-      <text x="450" y="350" text-anchor="end" class="t-bold">${toPersianDigits(formatRial(senPay).replace(' ریال',''))}</text>
+      <text x="364.75" y="209.96" class="f-fa bold">پایه سنوات</text>
+      <text x="291.42" y="209.96" class="f-num bold">${formatCellMoneyOrDash(senPay)}</text>
 
       <!-- Row 8: حق ماموریت -->
-      <text x="645" y="380" text-anchor="end">حق ماموریت</text>
-      <text x="450" y="380" text-anchor="end">${payslip.missionPay ? toPersianDigits(formatRial(payslip.missionPay).replace(' ریال','')) : '-'}</text>
+      <text x="364.75" y="225.92" class="f-fa bold">حق ماموریت</text>
+      <text x="291.42" y="225.92" class="f-num bold">${formatCellMoneyOrDash(missionPay)}</text>
 
       <!-- Row 9: اضافه کار -->
-      <text x="645" y="410" text-anchor="end">اضافه کار</text>
-      <text x="450" y="410" text-anchor="end" class="t-bold">${toPersianDigits(formatRial(payslip.overtimePay).replace(' ریال',''))}</text>
+      <text x="364.75" y="241.88" class="f-fa bold">اضافه کار</text>
+      <text x="291.42" y="241.88" class="f-num bold">${formatCellMoneyOrDash(overtimePay)}</text>
 
       <!-- Row 10: تعطیل کاری -->
-      <text x="645" y="440" text-anchor="end">تعطیل کاری</text>
-      <text x="450" y="440" text-anchor="end" class="t-bold">${toPersianDigits(formatRial(holPay).replace(' ریال',''))}</text>
+      <text x="364.75" y="257.84" class="f-fa bold">تعطیل کاری</text>
+      <text x="291.42" y="257.84" class="f-num bold">${formatCellMoneyOrDash(holPay)}</text>
 
       <!-- Row 11: معوقه -->
-      <text x="645" y="470" text-anchor="end">معوقه</text>
-      <text x="450" y="470" text-anchor="end">-</text>
+      <text x="364.75" y="273.8" class="f-fa bold">معوقه</text>
+      <text x="291.42" y="273.8" class="f-num bold">-</text>
 
-      <!-- Row 12: کارانه -->
-      <text x="645" y="500" text-anchor="end">کارانه</text>
-      <text x="450" y="500" text-anchor="end">${payslip.bonusPay > 0 ? toPersianDigits(formatRial(payslip.bonusPay).replace(' ریال','')) : '-'}</text>
+      <!-- Row 12: سرویس / کارانه -->
+      <text x="364.75" y="289.76" class="f-fa bold">سرویس</text>
+      <text x="291.42" y="289.76" class="f-num bold">${formatCellMoneyOrDash(bonusOrService)}</text>
 
       <!-- Row 13: یک روز اضافه ماه -->
-      <text x="645" y="530" text-anchor="end">یک روز اضافه ماه</text>
-      <text x="450" y="530" text-anchor="end" class="t-bold">${toPersianDigits(formatRial(extDayPay).replace(' ریال',''))}</text>
+      <text x="364.75" y="305.72" class="f-fa bold">یک روز اضافه ماه</text>
+      <text x="291.42" y="305.72" class="f-num bold">${formatCellMoneyOrDash(extDayPay)}</text>
     </g>
 
-    <!-- Subtotal Earnings Row (Bottom Middle) -->
-    <line x1="280" y1="612" x2="660" y2="612" class="border-line"/>
-    <g class="t-main" font-size="14" font-weight="bold" fill="#000000">
-      <text x="470" y="635" text-anchor="end">${toPersianDigits(formatRial(totalEarn).replace(' ریال',''))}</text>
+    <!-- ================= COL 5 & COL 6: ATTENDANCE (کارکرد) ================= -->
+    <g font-size="9.96" text-anchor="middle">
+      <!-- Item 1: کارکرد / روز -->
+      <text x="493.73" y="122.1" class="f-fa bold">کارکرد / روز</text>
+      <text x="430.46" y="129.8" class="f-num bold">${workingDaysStr}</text>
+
+      <!-- Item 2: اضافه کار -->
+      <text x="493.73" y="154.0" class="f-fa bold">اضافه کار</text>
+      <text x="430.46" y="161.7" class="f-num bold">${otStr}</text>
+
+      <!-- Item 3: ماموریت -->
+      <text x="493.73" y="185.9" class="f-fa bold">ماموریت</text>
+
+      <!-- Item 4: کسر کار -->
+      <text x="493.73" y="217.8" class="f-fa bold">کسر کار</text>
+      <text x="430.46" y="225.5" class="f-num bold">.</text>
+
+      <!-- Item 5: تعطیل کاری -->
+      <text x="493.73" y="249.8" class="f-fa bold">تعطیل کاری</text>
+      <text x="430.46" y="257.5" class="f-num bold">${holStr}</text>
+
+      <!-- Item 6: مانده مرخصی ( ساعت) -->
+      <text x="493.73" y="274.5" class="f-fa bold">مانده مرخصی</text>
+      <text x="493.73" y="289.0" class="f-fa bold">( ساعت)</text>
+      <text x="430.46" y="289.0" class="f-num bold">${leaveStr}</text>
     </g>
 
-    <!-- Column 3: Work Metrics (Right 660..865) -->
-    <!-- Grid Horizontal Lines inside Right Box -->
-    <line x1="660" y1="210" x2="865" y2="210" class="border-thin"/>
-    <line x1="660" y1="300" x2="865" y2="300" class="border-thin"/>
-    <line x1="660" y1="380" x2="865" y2="380" class="border-thin"/>
-    <line x1="660" y1="460" x2="865" y2="460" class="border-thin"/>
-    <line x1="660" y1="540" x2="865" y2="540" class="border-thin"/>
-
-    <g class="t-main" font-size="13" fill="#000000">
-      <!-- Section 1: کارکرد / روز -->
-      <text x="850" y="170" text-anchor="end">کارکرد / روز</text>
-      <text x="700" y="190" text-anchor="end" class="t-bold" font-size="14">${toPersianDigits(payslip.workingDays)}.0</text>
-
-      <!-- Section 2: اضافه کار -->
-      <text x="850" y="245" text-anchor="end">اضافه کار</text>
-      <text x="700" y="275" text-anchor="end" class="t-bold" font-size="13">${otStr}</text>
-
-      <!-- Section 3: ماموریت -->
-      <text x="850" y="335" text-anchor="end">ماموریت</text>
-
-      <!-- Section 4: کسر کار -->
-      <text x="850" y="415" text-anchor="end">کسر کار</text>
-
-      <!-- Section 5: تعطیل کاری -->
-      <text x="850" y="495" text-anchor="end">تعطیل کاری</text>
-      <text x="700" y="520" text-anchor="end" class="t-bold" font-size="13">${holStr}</text>
-
-      <!-- Section 6: مانده مرخصی (ساعت) -->
-      <text x="850" y="575" text-anchor="end">مانده مرخصی</text>
-      <text x="850" y="595" text-anchor="end">( ساعت)</text>
+    <!-- ================= TOTALS ROW (جمع کل) ================= -->
+    <g font-size="11.04" text-anchor="middle">
+      <text x="106.06" y="322.2" class="f-num bold">${formatCellMoneyOrDash(totalDed)}</text>
+      <text x="291.42" y="322.2" class="f-num bold">${formatCellMoneyOrDash(totalEarn)}</text>
     </g>
 
-    <!-- Bottom Net Pay Footer Bar (648..708) -->
-    <rect x="35" y="648" width="830" height="60" fill="#ffffff" class="border-line"/>
-
-    <g class="t-main" fill="#000000">
-      <!-- Left Logo inside Footer -->
-      <text x="55" y="682" font-size="18" font-weight="900" fill="#1e3a8a">RSS</text>
-      <text x="55" y="694" font-size="8" font-weight="bold" fill="#3b82f6">Royal Sanat Samaneh</text>
-
-      <!-- Center Unit -->
-      <text x="550" y="684" font-size="15" text-anchor="end">ریال</text>
-
-      <!-- Right Net Pay Value -->
-      <text x="730" y="686" font-size="20" font-weight="bold" text-anchor="end">${toPersianDigits(formatRial(netPay).replace(' ریال',''))}</text>
-      <text x="850" y="684" font-size="16" font-weight="bold" text-anchor="end">خالص پرداختی</text>
-    </g>
+    <!-- ================= FOOTER ROW (خالص پرداختی) ================= -->
+    <image x="70.02" y="329.2" width="73.32" height="18.2" href="${RSS_LOGO_BOTTOM_DATA_URL}" xlink:href="${RSS_LOGO_BOTTOM_DATA_URL}" preserveAspectRatio="xMidYMid meet"/>
+    <text x="312.5" y="341.6" font-size="11.04" class="f-fa" text-anchor="middle">ریال</text>
+    <text x="364.75" y="341.8" font-size="11.5" class="f-num bold" text-anchor="middle">${formatCellMoneyOrDash(netPay)}</text>
+    <text x="493.73" y="341.4" font-size="11.5" class="f-fa bold" text-anchor="middle">خالص پرداختی</text>
   </svg>`;
 
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+function loadImageElement(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = (e) => reject(e);
+    img.src = src;
+  });
+}
+
+/**
+ * Renders the Payslip SVG onto a high-resolution HTML5 Canvas (1786 x 1262, 300 DPI)
+ */
+async function renderPayslipToCanvas(payslip: PayslipItem, orgName?: string): Promise<HTMLCanvasElement> {
+  const dataUrl = generatePayslipSvgDataUrl(payslip, orgName);
+  const [svgImg, topLogoImg, bottomLogoImg] = await Promise.all([
+    loadImageElement(dataUrl),
+    loadImageElement(RSS_LOGO_TOP_DATA_URL).catch(() => null),
+    loadImageElement(RSS_LOGO_BOTTOM_DATA_URL).catch(() => null),
+  ]);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 1786;
+  canvas.height = 1262;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(svgImg, 0, 0, canvas.width, canvas.height);
+
+    const scaleX = canvas.width / 595.2;
+    const scaleY = canvas.height / 420.72;
+    if (topLogoImg) {
+      ctx.drawImage(
+        topLogoImg,
+        70.47 * scaleX,
+        30.24 * scaleY,
+        74.01 * scaleX,
+        39.69 * scaleY
+      );
+    }
+    if (bottomLogoImg) {
+      ctx.drawImage(
+        bottomLogoImg,
+        70.02 * scaleX,
+        329.2 * scaleY,
+        73.32 * scaleX,
+        18.2 * scaleY
+      );
+    }
+  }
+  return canvas;
+}
+
+/**
+ * Packs a JPEG Uint8Array into a standards-compliant, single-page PDF 1.4 binary
+ * with exact page dimensions [0 0 595.2 420.72] matching the official RSS payslip PDF.
+ */
+function buildPdfFromJpegBytes(jpegBytes: Uint8Array, widthPx: number, heightPx: number): Uint8Array {
+  const pageW = 595.2;
+  const pageH = 420.72;
+  const encoder = new TextEncoder();
+  const chunks: Uint8Array[] = [];
+  const offsets: number[] = [0]; // index 0 is unused (object 0)
+  let currentOffset = 0;
+
+  const pushStr = (s: string) => {
+    const b = encoder.encode(s);
+    chunks.push(b);
+    currentOffset += b.byteLength;
+  };
+  const pushBytes = (b: Uint8Array) => {
+    chunks.push(b);
+    currentOffset += b.byteLength;
+  };
+
+  // PDF Header
+  pushStr('%PDF-1.4\n%\xFF\xFF\xFF\xFF\n');
+
+  // Object 1: Catalog
+  offsets[1] = currentOffset;
+  pushStr('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
+
+  // Object 2: Pages
+  offsets[2] = currentOffset;
+  pushStr('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n');
+
+  // Object 3: Page
+  offsets[3] = currentOffset;
+  pushStr(
+    `3 0 obj\n<< /Type /Page /Parent 2 0 R /Resources << /XObject << /Im1 4 0 R >> /ProcSet [/PDF /ImageC] >> /MediaBox [0 0 ${pageW} ${pageH}] /Contents 5 0 R >>\nendobj\n`
+  );
+
+  // Object 4: Image XObject (DCTDecode JPEG)
+  offsets[4] = currentOffset;
+  pushStr(
+    `4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${widthPx} /Height ${heightPx} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Interpolate true /Length ${jpegBytes.byteLength} >>\nstream\n`
+  );
+  pushBytes(jpegBytes);
+  pushStr('\nendstream\nendobj\n');
+
+  // Object 5: Page Content Stream
+  const contentStream = `q\n${pageW} 0 0 ${pageH} 0 0 cm\n/Im1 Do\nQ\n`;
+  offsets[5] = currentOffset;
+  pushStr(
+    `5 0 obj\n<< /Length ${contentStream.length} >>\nstream\n${contentStream}endstream\nendobj\n`
+  );
+
+  // XRef Table
+  const xrefOffset = currentOffset;
+  pushStr('xref\n0 6\n0000000000 65535 f \n');
+  for (let i = 1; i <= 5; i++) {
+    pushStr(`${String(offsets[i]).padStart(10, '0')} 00000 n \n`);
+  }
+
+  // Trailer
+  pushStr(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`);
+
+  const totalOut = new Uint8Array(currentOffset);
+  let pos = 0;
+  for (const chunk of chunks) {
+    totalOut.set(chunk, pos);
+    pos += chunk.byteLength;
+  }
+  return totalOut;
 }
 
 /**
  * Generates and downloads a real PNG image from the Payslip SVG or custom image
  */
 export async function downloadPayslipImage(payslip: PayslipItem, orgName?: string): Promise<void> {
-  const dataUrl = generatePayslipSvgDataUrl(payslip, orgName);
-  const img = new Image();
-  img.crossOrigin = 'anonymous';
-
-  await new Promise<void>((resolve, reject) => {
-    img.onload = () => resolve();
-    img.onerror = (err) => reject(err);
-    img.src = dataUrl;
-  });
-
-  const canvas = document.createElement('canvas');
-  canvas.width = 1350;
-  canvas.height = 1110;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
+  const canvas = await renderPayslipToCanvas(payslip, orgName);
   const pngUrl = canvas.toDataURL('image/png');
   const a = document.createElement('a');
   a.href = pngUrl;
@@ -398,112 +555,40 @@ export async function downloadPayslipImage(payslip: PayslipItem, orgName?: strin
 }
 
 /**
- * Generates a valid, high-fidelity PDF file matching the RSS Royal Sanat Samaneh corporate template format
- * (or downloads custom uploaded PDF if provided).
+ * Generates a real, standards-compliant PDF 1.4 file matching the official RSS Royal Sanat Samaneh
+ * corporate template format (`595.2 x 420.72`) and triggers immediate PDF download.
  */
-export function downloadPayslipPdf(payslip: PayslipItem, orgName = 'رویال صنعت سامانه'): void {
-  // If a custom PDF DataURL was uploaded for this payslip, download it directly:
-  if (payslip.customPdfUrl && payslip.customPdfUrl.startsWith('data:application/pdf')) {
+export async function downloadPayslipPdf(payslip: PayslipItem, orgName = 'رویال صنعت سامانه'): Promise<void> {
+  const fileName =
+    payslip.customPdfFileName ||
+    `Payslip-${payslip.personnelCode}-${payslip.year}-${String(payslip.month).padStart(2, '0')}.pdf`;
+
+  try {
+    const canvas = await renderPayslipToCanvas(payslip, orgName);
+    const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.96);
+    const base64Part = jpegDataUrl.split(',')[1] || '';
+    const binaryStr = atob(base64Part);
+    const jpegBytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      jpegBytes[i] = binaryStr.charCodeAt(i);
+    }
+
+    const pdfBytes = buildPdfFromJpegBytes(jpegBytes, canvas.width, canvas.height);
+    const blob = new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' });
+    const pdfBlobUrl = URL.createObjectURL(blob);
+
+    // Download the real .pdf file directly
     const a = document.createElement('a');
-    a.href = payslip.customPdfUrl;
-    a.download =
-      payslip.customPdfFileName ||
-      `Payslip-${payslip.personnelCode}-${payslip.year}-${String(payslip.month).padStart(2, '0')}.pdf`;
+    a.href = pdfBlobUrl;
+    a.download = fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    return;
+
+    setTimeout(() => URL.revokeObjectURL(pdfBlobUrl), 60000);
+  } catch (err) {
+    console.error('Error generating PDF payslip:', err);
   }
-
-  // Generate an HTML print window with the exact corporate vector grid styling and trigger immediate PDF print/save
-  const svgDataUrl = generatePayslipSvgDataUrl(payslip, orgName);
-  const cleanOrg = orgName.includes('رویال') ? orgName : `شرکت ${orgName}`;
-
-  const printWindow = window.open('', '_blank');
-  if (printWindow) {
-    printWindow.document.write(`<!DOCTYPE html>
-<html dir="rtl" lang="fa">
-<head>
-  <meta charset="utf-8">
-  <title>فیش حقوقی ${payslip.employeeName} - ${payslip.monthName} ${payslip.year}</title>
-  <style>
-    @page { size: A4 portrait; margin: 10mm; }
-    body { margin: 0; padding: 0; background: #ffffff; font-family: Tahoma, Vazirmatn, sans-serif; text-align: center; }
-    .pdf-container { width: 100%; max-width: 800px; margin: 0 auto; padding: 10px; box-sizing: border-box; }
-    img { width: 100%; height: auto; display: block; border: 1px solid #000; }
-  </style>
-</head>
-<body>
-  <div class="pdf-container">
-    <img src="${svgDataUrl}" alt="فیش حقوقی پرسنل ${cleanOrg}" />
-  </div>
-  <script>
-    window.onload = function() {
-      setTimeout(function() {
-        window.print();
-      }, 500);
-    };
-  </script>
-</body>
-</html>`);
-    printWindow.document.close();
-    return;
-  }
-
-  // Fallback download trigger via printable Blob anchor
-  const lines = [
-    `RSS ROYAL SANAT SAMANEH - PAYSLIP`,
-    `------------------------------------------------------------`,
-    `Personnel Code : ${payslip.personnelCode}`,
-    `Employee Name  : ${payslip.employeeName}`,
-    `National Code  : ${payslip.nationalCode}`,
-    `Month / Year   : ${payslip.monthName} ${payslip.year}`,
-    `Working Days   : ${payslip.workingDays} days`,
-    `------------------------------------------------------------`,
-    `EARNINGS (RIAL):`,
-    `  Base Salary        : ${payslip.baseSalary.toLocaleString('fa-IR')} Rial`,
-    `  Specialization Pay : ${(payslip.specializationPay || 110589381).toLocaleString('fa-IR')} Rial`,
-    `  Grocery Allowance  : ${payslip.groceryAllowance.toLocaleString('fa-IR')} Rial`,
-    `  Housing Allowance  : ${payslip.housingAllowance.toLocaleString('fa-IR')} Rial`,
-    `  Marital Allowance  : ${(payslip.maritalAllowance || 5000000).toLocaleString('fa-IR')} Rial`,
-    `  Child Allowance    : ${payslip.childAllowance.toLocaleString('fa-IR')} Rial`,
-    `  Seniority Pay      : ${(payslip.seniorityPay || 34317060).toLocaleString('fa-IR')} Rial`,
-    `  Overtime Pay       : ${payslip.overtimePay.toLocaleString('fa-IR')} Rial`,
-    `  Holiday Pay        : ${(payslip.holidayPay || 142837651).toLocaleString('fa-IR')} Rial`,
-    `  Extra Day Pay      : ${(payslip.extraDayPay || 13798948).toLocaleString('fa-IR')} Rial`,
-    `  TOTAL EARNINGS     : ${payslip.totalEarnings.toLocaleString('fa-IR')} Rial`,
-    `------------------------------------------------------------`,
-    `DEDUCTIONS (RIAL):`,
-    `  Social Insurance   : ${payslip.insuranceDeduction.toLocaleString('fa-IR')} Rial`,
-    `  Supplementary Ins  : ${(payslip.supplementaryInsurance || 6820000).toLocaleString('fa-IR')} Rial`,
-    `  Lunch Deduction    : ${(payslip.lunchDeduction || 30000000).toLocaleString('fa-IR')} Rial`,
-    `  TOTAL DEDUCTIONS   : ${payslip.totalDeductions.toLocaleString('fa-IR')} Rial`,
-    `============================================================`,
-    `NET PAYABLE          : ${payslip.netPay.toLocaleString('fa-IR')} RIAL`,
-    `============================================================`
-  ];
-
-  const streamContent = `BT\n/F1 11 Tf\n${lines.map((l, i) => `1 0 0 1 50 ${760 - i * 22} Tm (${l}) Tj`).join('\n')}\nET`;
-  const pdfParts = [
-    '%PDF-1.4\n',
-    '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
-    '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n',
-    '3 0 obj\n<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R >> >> /MediaBox [0 0 612 842] /Contents 5 0 R >>\nendobj\n',
-    '4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>\nendobj\n',
-    `5 0 obj\n<< /Length ${streamContent.length} >>\nstream\n${streamContent}\nendstream\nendobj\n`,
-    'xref\n0 6\n0000000000 65535 f \n',
-    'trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n0\n%%EOF'
-  ];
-
-  const blob = new Blob(pdfParts, { type: 'application/pdf' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `Payslip-${payslip.personnelCode}-${payslip.year}-${String(payslip.month).padStart(2, '0')}.pdf`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 3000);
 }
 
 /**

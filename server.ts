@@ -6,8 +6,10 @@ import * as XLSX from 'xlsx';
 import { createServer as createViteServer } from 'vite';
 import {
   extractCleanPersonnelCode,
+  formatExcelDurationCommon,
   parseExcelWorkbookCommon,
 } from './src/utils/excelPayrollScanner';
+import { generatePayslipSvgDataUrl } from './src/utils/payslipGenerator';
 import {
   AppStateResponse,
   BotButton,
@@ -559,6 +561,16 @@ function loadState(): AppStateResponse {
     if (fs.existsSync(DB_FILE)) {
       const raw = fs.readFileSync(DB_FILE, 'utf-8');
       const parsed = JSON.parse(raw) as AppStateResponse;
+      if (Array.isArray(parsed.payslips)) {
+        for (const ps of parsed.payslips) {
+          if (ps.overtimeHoursStr) {
+            ps.overtimeHoursStr = formatExcelDurationCommon(ps.overtimeHoursStr) || ps.overtimeHoursStr;
+          }
+          if (ps.holidayHoursStr) {
+            ps.holidayHoursStr = formatExcelDurationCommon(ps.holidayHoursStr) || ps.holidayHoursStr;
+          }
+        }
+      }
       // Do NOT call applyEnvOverrides(parsed): preserve user database 100% on updates & restarts!
       return parsed;
     }
@@ -4248,6 +4260,45 @@ console.log("🚀 Payroll Bot (with Full In-Bot Admin Panel /admin) Started for:
               reply_markup,
             }),
           });
+
+          // If the bot message includes a payslip bundle, also send the payslip document to the user in Telegram/Bale
+          if (lastBotMsg.attachment?.type === 'payslip_bundle' && lastBotMsg.attachment.payslipData) {
+            const ps = lastBotMsg.attachment.payslipData;
+            const docEndpoint =
+              platform === 'telegram'
+                ? `https://api.telegram.org/bot${token}/sendDocument`
+                : `https://tapi.bale.ai/bot${token}/sendDocument`;
+            try {
+              const formData = new FormData();
+              formData.append('chat_id', String(msg.chat.id));
+              formData.append(
+                'caption',
+                `📄 فیش حقوقی ${ps.employeeName} — ${ps.monthName} ${toPersianDigitsServer(ps.year)} (کد پرسنلی: ${ps.personnelCode})`
+              );
+
+              if (ps.customPdfUrl && ps.customPdfUrl.startsWith('data:application/pdf;base64,')) {
+                const b64 = ps.customPdfUrl.split(',')[1] || '';
+                const pdfBuf = Buffer.from(b64, 'base64');
+                const pdfFileName =
+                  ps.customPdfFileName ||
+                  `Payslip-${ps.personnelCode}-${ps.year}-${String(ps.month).padStart(2, '0')}.pdf`;
+                formData.append('document', new Blob([pdfBuf], { type: 'application/pdf' }), pdfFileName);
+              } else {
+                const svgDataUrl = generatePayslipSvgDataUrl(ps, state.config.organizationName);
+                const rawSvg = decodeURIComponent(svgDataUrl.replace(/^data:image\/svg\+xml;utf8,/, ''));
+                const printableHtml = `<!DOCTYPE html><html dir="rtl" lang="fa"><head><meta charset="UTF-8"/><title>فیش حقوقی ${ps.employeeName} - ${ps.monthName} ${ps.year}</title><style>@page{size:A5 landscape;margin:0;}*{box-sizing:border-box;margin:0;padding:0;}body{background:#f1f5f9;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:Tahoma,sans-serif;padding:16px;}.toolbar{margin-bottom:12px;display:flex;gap:10px;}.btn{background:#0f172a;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-family:Tahoma,sans-serif;font-size:13px;font-weight:bold;}.page{background:#fff;box-shadow:0 4px 20px rgba(0,0,0,0.12);max-width:100%;overflow:hidden;}svg{display:block;width:100%;height:auto;max-width:960px;}@media print{body{background:#fff;padding:0;}.toolbar{display:none;}.page{box-shadow:none;width:100%;}}</style></head><body><div class="toolbar"><button class="btn" onclick="window.print()">چاپ / ذخیره فایل PDF</button></div><div class="page">${rawSvg}</div></body></html>`;
+                const htmlFileName = `Payslip-${ps.personnelCode}-${ps.year}-${String(ps.month).padStart(2, '0')}.html`;
+                formData.append('document', new Blob([printableHtml], { type: 'text/html;charset=utf-8' }), htmlFileName);
+              }
+
+              await fetch(docEndpoint, {
+                method: 'POST',
+                body: formData,
+              });
+            } catch (docErr) {
+              console.error('Error sending payslip document to user:', docErr);
+            }
+          }
         }
       }
     } catch (e) {

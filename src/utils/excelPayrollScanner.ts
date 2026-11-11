@@ -21,6 +21,33 @@ export function parseNumberCommon(val: unknown, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+/**
+ * Converts Excel fractional day serial numbers (like 0.11180555555555556 -> "2:41:00"
+ * or 4.772916666666667 -> "114:33:00") or raw time strings into clean "H:MM:SS" strings.
+ */
+export function formatExcelDurationCommon(val: unknown): string {
+  if (val === undefined || val === null) return '';
+  const str = toEnglishDigitsCommon(String(val)).trim();
+  if (!str || str === '-' || str === '.' || str === '—') return '';
+  if (/^\d{1,3}:\d{2}(:\d{2})?$/.test(str)) {
+    return str.split(':').length === 2 ? `${str}:00` : str;
+  }
+  const num = Number(str);
+  if (Number.isFinite(num) && num >= 0 && num < 50) {
+    if (num === 0) return '0:00:00';
+    // If it has decimal fraction (Excel serial fraction of a 24h day)
+    if (!Number.isInteger(num) || num < 1) {
+      const totalSeconds = Math.round(num * 86400);
+      const h = Math.floor(totalSeconds / 3600);
+      const m = Math.floor((totalSeconds % 3600) / 60);
+      const s = totalSeconds % 60;
+      return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+    return `${num}:00:00`;
+  }
+  return '';
+}
+
 export interface ParsedPayrollResult {
   payslips: Omit<PayslipItem, 'id' | 'createdAt'>[];
   detectedColumns: string[];
@@ -527,7 +554,19 @@ function parseSingleFormBlock(
           } else if (fv.num > 1000) {
             overtimePay = fv.num;
           } else if (fv.num > 0 && !overtimeHoursStr) {
-            overtimeHoursStr = String(fv.num);
+            overtimeHoursStr = formatExcelDurationCommon(fv.num) || String(fv.num);
+          }
+        }
+        // Check r + 1 for vertically merged 2-row Attendance "اضافه کار" cell
+        if (!overtimeHoursStr && r + 1 < endRow) {
+          const nextRow = matrix2D[r + 1] || [];
+          for (const step of [1, 2]) {
+            const cand = nextRow[c + primaryDir * step];
+            const dur = formatExcelDurationCommon(cand);
+            if (dur) {
+              overtimeHoursStr = dur;
+              break;
+            }
           }
         }
       } else if (cellVal === 'تعطیل کاری' || cellVal === 'تعطیل‌کاری' || cellVal.includes('مبلغ تعطیل')) {
@@ -537,8 +576,20 @@ function parseSingleFormBlock(
             holidayHoursStr = fv.raw;
           } else if (fv.num > 1000) {
             holidayPay = fv.num;
-          } else if (fv.num > 0 && !holidayHoursStr) {
-            holidayHoursStr = String(fv.num);
+          } else if (fv.num >= 0 && fv.raw !== '-' && !holidayHoursStr) {
+            holidayHoursStr = formatExcelDurationCommon(fv.num) || String(fv.num);
+          }
+        }
+        // Check r + 1 for vertically merged 2-row Attendance "تعطیل کاری" cell
+        if (!holidayHoursStr && r + 1 < endRow) {
+          const nextRow = matrix2D[r + 1] || [];
+          for (const step of [1, 2]) {
+            const cand = nextRow[c + primaryDir * step];
+            const dur = formatExcelDurationCommon(cand);
+            if (dur) {
+              holidayHoursStr = dur;
+              break;
+            }
           }
         }
       } else if (cellVal === 'معوقه' || cellVal.includes('معوقات')) {
